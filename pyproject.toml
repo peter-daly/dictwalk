@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dictwalk"
+version = "0.1.0"
+description = "Dict path traversal and mutation utilities"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["dictwalk"]
+
+[dependency-groups]
+dev = [
+    "deptry",
+    "pytest>=9.0.2",
+    "ruff",
+    "tox",
+    "ty",
+]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.deptry]
+known_first_party = ["dictwalk"]
