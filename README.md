@@ -6,7 +6,7 @@
 > Please do not use this instead of just writing normal code.  
 > This is bored-developer scope creep in library form.
 > The original idea was basically “jq/yq, but for Python dicts, and here we are”.
-> I hope you get some use out of it, because I didn't.
+> I hope somebody out there finds some good use for it.
 
 `dictwalk` is a small utility for traversing and mutating nested Python dict/list data using path expressions.
 
