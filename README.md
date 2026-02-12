@@ -1,9 +1,9 @@
 # dictwalk
 
-> This library is basically overengineered and ridiculous.  
+> This library is basically overengineered and ridiculous.
 > It mostly exists because I kept asking an AI to add one more feature, then one more, then one more.
 > Then I asked the AI to come up with features and I said screw it add them all.
-> Please do not use this instead of just writing normal code.  
+> Please do not use this instead of just writing normal code.
 > This is bored-developer scope creep in library form.
 > The original idea was basically “jq/yq, but for Python dicts, and here we are”.
 > I hope somebody out there finds some good use for it.
@@ -186,6 +186,7 @@ At terminal paths this can:
 ## Filters
 
 Built-in filters include arithmetic, string, collection, predicate, and datetime utilities.
+Custom filter registration is not supported.
 
 Examples:
 - Arithmetic: `$inc`, `$double`, `$add(2)`, `$round(1)`
@@ -193,17 +194,6 @@ Examples:
 - String: `$lower`, `$upper`, `$replace("a","b")`, `$split(",")`
 - Predicates: `$even`, `$odd`, `$gt(10)`, `$contains("x")`
 - Datetime: `$to_datetime`, `$timestamp`, `$age_seconds`, `$before(...)`, `$after(...)`
-
-Register custom filters:
-
-```python
-from dictwalk import dictwalk
-
-dictwalk.register_path_filter("triple", lambda x: x * 3)
-
-value = dictwalk.get({"a": {"b": 2}}, "a.b|$triple")
-# 6
-```
 
 ## Errors
 

@@ -348,4 +348,3 @@ obj = {"a": {"b": {}}}
 dictwalk.unset(obj, "a.b.c", strict=True)
 # raises DictWalkResolutionError
 ```
-

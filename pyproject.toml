@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling>=1.25"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
 
 [project]
 name = "dictwalk"
@@ -10,12 +10,15 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
-[tool.hatch.build.targets.wheel]
-packages = ["dictwalk"]
+[tool.maturin]
+manifest-path = "rust/Cargo.toml"
+module-name = "dictwalk._dictwalk_rs"
+python-source = "."
 
 [dependency-groups]
 dev = [
     "deptry",
+    "pre-commit",
     "pytest>=9.0.2",
     "ruff",
     "tox",

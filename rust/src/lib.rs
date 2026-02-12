@@ -325,7 +325,7 @@ fn validate_filter_token(
     if field == "." {
         // Valid root-field expression.
     } else if let Some(field_transform) = field.strip_prefix(".|") {
-        if compile_builtin_pipeline(py, field_transform).is_none() {
+        if compile_builtin_pipeline(py, field_transform, None).is_none() {
             return Err(make_parse_error(
                 py,
                 &format!("{list_key}[?{field}{operator}{value}]"),
@@ -523,8 +523,9 @@ fn apply_output_transform(
     _registry: &Bound<'_, PyAny>,
     current: &PyObject,
     transform: &str,
+    root_data: &PyObject,
 ) -> PyResult<PyObject> {
-    if let Some(pipeline) = compile_builtin_pipeline(py, transform) {
+    if let Some(pipeline) = compile_builtin_pipeline(py, transform, Some(root_data)) {
         return apply_builtin_pipeline(py, current.clone_ref(py), &pipeline);
     }
     Ok(current.clone_ref(py))
@@ -633,16 +634,121 @@ fn parse_literal(py: Python<'_>, value: &str) -> PyObject {
     }
 }
 
-fn parse_filter_args(py: Python<'_>, args_string: &str) -> Option<Vec<PyObject>> {
-    let ast = py.import_bound("ast").ok()?;
-    let literal_eval = ast.getattr("literal_eval").ok()?;
-    let tuple_expr = format!("({args_string},)");
-    let parsed = literal_eval.call1((tuple_expr,)).ok()?;
-    let parsed_tuple = parsed.downcast::<PyTuple>().ok()?;
+fn split_filter_args(args_string: &str) -> Option<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut paren_depth = 0i32;
+    let mut bracket_depth = 0i32;
+    let mut brace_depth = 0i32;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
 
+    for ch in args_string.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            current.push(ch);
+            escaped = true;
+            continue;
+        }
+
+        if in_single {
+            current.push(ch);
+            if ch == '\'' {
+                in_single = false;
+            }
+            continue;
+        }
+        if in_double {
+            current.push(ch);
+            if ch == '"' {
+                in_double = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '\'' => {
+                in_single = true;
+                current.push(ch);
+            }
+            '"' => {
+                in_double = true;
+                current.push(ch);
+            }
+            '(' => {
+                paren_depth += 1;
+                current.push(ch);
+            }
+            ')' => {
+                paren_depth -= 1;
+                if paren_depth < 0 {
+                    return None;
+                }
+                current.push(ch);
+            }
+            '[' => {
+                bracket_depth += 1;
+                current.push(ch);
+            }
+            ']' => {
+                bracket_depth -= 1;
+                if bracket_depth < 0 {
+                    return None;
+                }
+                current.push(ch);
+            }
+            '{' => {
+                brace_depth += 1;
+                current.push(ch);
+            }
+            '}' => {
+                brace_depth -= 1;
+                if brace_depth < 0 {
+                    return None;
+                }
+                current.push(ch);
+            }
+            ',' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+                out.push(current.trim().to_string());
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    if in_single || in_double || paren_depth != 0 || bracket_depth != 0 || brace_depth != 0 {
+        return None;
+    }
+
+    if !current.trim().is_empty() {
+        out.push(current.trim().to_string());
+    } else if !args_string.trim().is_empty() {
+        return None;
+    }
+
+    Some(out)
+}
+
+fn parse_filter_args(
+    py: Python<'_>,
+    args_string: &str,
+    root_data: Option<&PyObject>,
+) -> Option<Vec<PyObject>> {
+    let arg_tokens = split_filter_args(args_string)?;
     let mut out: Vec<PyObject> = Vec::new();
-    for item in parsed_tuple.iter() {
-        out.push(item.into());
+    for token in arg_tokens {
+        if token.starts_with("$$root") {
+            let root = root_data?;
+            let resolved = resolve_root_reference_value(py, root, &token).ok()?;
+            out.push(resolved);
+            continue;
+        }
+        out.push(parse_literal(py, &token));
     }
     Some(out)
 }
@@ -743,7 +849,11 @@ fn compile_builtin_filter(py: Python<'_>, name: &str, args: &[PyObject]) -> Opti
     }
 }
 
-fn compile_builtin_pipeline(py: Python<'_>, expression: &str) -> Option<BuiltinFilterPipeline> {
+fn compile_builtin_pipeline(
+    py: Python<'_>,
+    expression: &str,
+    root_data: Option<&PyObject>,
+) -> Option<BuiltinFilterPipeline> {
     if !expression.starts_with('$') {
         return None;
     }
@@ -753,7 +863,7 @@ fn compile_builtin_pipeline(py: Python<'_>, expression: &str) -> Option<BuiltinF
         let captures = PATH_FILTER_SEGMENT_RE.captures(segment)?;
         let name = captures.get(1)?.as_str();
         let args = if let Some(args_match) = captures.get(2) {
-            parse_filter_args(py, args_match.as_str())?
+            parse_filter_args(py, args_match.as_str(), root_data)?
         } else {
             Vec::new()
         };
@@ -1398,6 +1508,35 @@ fn compare_values(
     left_bound.rich_compare(right_bound, op)?.is_truthy()
 }
 
+fn resolve_root_reference_value(
+    py: Python<'_>,
+    root_data: &PyObject,
+    value: &str,
+) -> PyResult<PyObject> {
+    let root_path = if value == "$$root" {
+        ".".to_string()
+    } else if let Some(rest) = value.strip_prefix("$$root.") {
+        rest.to_string()
+    } else if let Some(rest) = value.strip_prefix("$$root|") {
+        format!(".|{rest}")
+    } else {
+        return Err(make_parse_error(
+            py,
+            value,
+            Some(value),
+            "Invalid '$$root' value expression. Expected '$$root', '$$root.<path>', or '$$root|$filter'.",
+        ));
+    };
+
+    let rust_module = py.import_bound("dictwalk._dictwalk_rs")?;
+    let backend = rust_module.getattr("dictwalk")?;
+    let kwargs = PyDict::new_bound(py);
+    kwargs.set_item("strict", true)?;
+    backend
+        .call_method("get", (root_data.clone_ref(py), root_path), Some(&kwargs))
+        .map(|value| value.into())
+}
+
 enum PredicateExpr {
     Pipeline(BuiltinFilterPipeline),
     Not(Box<PredicateExpr>),
@@ -1531,7 +1670,7 @@ impl<'py> PredicateParser<'py> {
             .ok_or("Unexpected end of boolean path filter expression.".to_string())?
             .to_string();
         self.idx += 1;
-        let pipeline = compile_builtin_pipeline(self.py, &token)
+        let pipeline = compile_builtin_pipeline(self.py, &token, None)
             .ok_or_else(|| format!("Invalid path filter token '{token}' in boolean expression."))?;
         Ok(PredicateExpr::Pipeline(pipeline))
     }
@@ -1570,7 +1709,7 @@ fn compile_builtin_or_boolean_predicate(
         return parser.parse().map(Some);
     }
 
-    if let Some(pipeline) = compile_builtin_pipeline(py, expr) {
+    if let Some(pipeline) = compile_builtin_pipeline(py, expr, None) {
         return Ok(Some(PredicateExpr::Pipeline(pipeline)));
     }
 
@@ -1640,7 +1779,7 @@ fn compile_filter_matcher(
     let field_resolver = if field == "." {
         FieldValueResolver::CurrentItem
     } else if let Some(field_transform) = field.strip_prefix(".|") {
-        if let Some(pipeline) = compile_builtin_pipeline(py, field_transform) {
+        if let Some(pipeline) = compile_builtin_pipeline(py, field_transform, None) {
             FieldValueResolver::CurrentItemBuiltinPipeline(pipeline)
         } else {
             FieldValueResolver::CurrentItemTransform(None)
@@ -1652,7 +1791,7 @@ fn compile_filter_matcher(
         FieldValueResolver::Key(field.to_string())
     };
 
-    let value_matcher = if let Some(pipeline) = compile_builtin_pipeline(py, value) {
+    let value_matcher = if let Some(pipeline) = compile_builtin_pipeline(py, value, None) {
         ValueMatcher::BuiltinPipeline(pipeline)
     } else if let Some(path_filter) = resolve_predicate_filter(module, registry, py, value)? {
         ValueMatcher::PredicateExpr(path_filter)
@@ -1704,6 +1843,7 @@ fn filter_matches_compiled(
     operator: &str,
     matcher: &CompiledFilterMatcher,
     item: &PyObject,
+    root_data: Option<&PyObject>,
 ) -> PyResult<bool> {
     let field_value = resolve_filter_field_value_compiled(py, matcher, item)?;
 
@@ -1735,6 +1875,11 @@ fn filter_matches_compiled(
     }
 
     let expected_value = match &matcher.value_matcher {
+        ValueMatcher::Literal(_value)
+            if matcher.raw_value.starts_with("$$root") && root_data.is_some() =>
+        {
+            resolve_root_reference_value(py, root_data.expect("checked is_some"), &matcher.raw_value)?
+        }
         ValueMatcher::Literal(value) => value.clone_ref(py),
         _ => py.None(),
     };
@@ -1778,6 +1923,7 @@ fn resolve_filter_token(
     module: &Bound<'_, PyModule>,
     registry: &Bound<'_, PyAny>,
     current: &PyObject,
+    root_data: &PyObject,
     list_key: &str,
     field: &str,
     operator: &str,
@@ -1807,7 +1953,7 @@ fn resolve_filter_token(
     let out = PyList::empty_bound(py);
     for item in source_list.iter() {
         let item_obj: PyObject = item.clone().into();
-        if filter_matches_compiled(py, operator, &matcher, &item_obj)? {
+        if filter_matches_compiled(py, operator, &matcher, &item_obj, Some(root_data))? {
             out.append(item)?;
         }
     }
@@ -1837,6 +1983,7 @@ fn resolve_token(
     module: &Bound<'_, PyModule>,
     registry: &Bound<'_, PyAny>,
     current: &PyObject,
+    root_data: &PyObject,
     kind: &TokenKind,
 ) -> PyResult<PyObject> {
     match kind {
@@ -1852,7 +1999,7 @@ fn resolve_token(
             operator,
             value,
         } => resolve_filter_token(
-            py, module, registry, current, list_key, field, operator, value,
+            py, module, registry, current, root_data, list_key, field, operator, value,
         ),
         TokenKind::Root => Ok(current.clone_ref(py)),
     }
@@ -1888,7 +2035,7 @@ fn ensure_path_resolves(
             continue;
         }
 
-        let resolved = resolve_token(py, module, registry, &current, &token.kind);
+        let resolved = resolve_token(py, module, registry, &current, data, &token.kind);
         match resolved {
             Ok(value) => current = value,
             Err(err) => {
@@ -1951,7 +2098,7 @@ fn resolve_new_value(
         }
 
         if !filter_value.starts_with("$$root") {
-            if let Some(pipeline) = compile_builtin_pipeline(py, &filter_value) {
+            if let Some(pipeline) = compile_builtin_pipeline(py, &filter_value, None) {
                 let existing = existing_value.unwrap_or_else(|| py.None());
                 return apply_builtin_pipeline(py, existing, &pipeline);
             }
@@ -2668,7 +2815,13 @@ fn set_filter_token(
     let mut matches: Vec<bool> = Vec::with_capacity(list.len());
     for idx in 0..list.len() {
         let item: PyObject = list.get_item(idx)?.into();
-        matches.push(filter_matches_compiled(py, operator, &matcher, &item)?);
+        matches.push(filter_matches_compiled(
+            py,
+            operator,
+            &matcher,
+            &item,
+            Some(root_data),
+        )?);
     }
 
     if !matches.iter().any(|matched| *matched) {
@@ -3080,7 +3233,7 @@ fn unset_filter_token(
         for idx in 0..list.len() {
             let item = list.get_item(idx)?;
             let item_obj: PyObject = item.clone().into();
-            if !filter_matches_compiled(py, operator, &matcher, &item_obj)? {
+            if !filter_matches_compiled(py, operator, &matcher, &item_obj, None)? {
                 filtered.append(item)?;
             }
         }
@@ -3090,7 +3243,7 @@ fn unset_filter_token(
 
     for idx in 0..list.len() {
         let child: PyObject = list.get_item(idx)?.into();
-        if !filter_matches_compiled(py, operator, &matcher, &child)? {
+        if !filter_matches_compiled(py, operator, &matcher, &child, None)? {
             continue;
         }
         let updated = unset_recurse(py, module, registry, child, &remaining[1..])?;
@@ -3128,7 +3281,14 @@ impl RustDictWalk {
         if base_path == "." {
             let mut current = data.clone_ref(py);
             if let Some(transform) = output_transform {
-                current = apply_output_transform(py, &module, &registry, &current, &transform)?;
+                current = apply_output_transform(
+                    py,
+                    &module,
+                    &registry,
+                    &current,
+                    &transform,
+                    &data,
+                )?;
             }
             return Ok(current);
         }
@@ -3142,7 +3302,8 @@ impl RustDictWalk {
                 continue;
             }
 
-            let resolved = resolve_token(py, &module, &registry, &current, &token.kind);
+            let resolved =
+                resolve_token(py, &module, &registry, &current, &data, &token.kind);
 
             match resolved {
                 Ok(value) => current = value,
@@ -3164,7 +3325,14 @@ impl RustDictWalk {
         }
 
         if let Some(transform) = output_transform {
-            current = apply_output_transform(py, &module, &registry, &current, &transform)?;
+            current = apply_output_transform(
+                py,
+                &module,
+                &registry,
+                &current,
+                &transform,
+                &data,
+            )?;
         }
 
         Ok(current)
@@ -3189,7 +3357,8 @@ impl RustDictWalk {
                 continue;
             }
 
-            let resolved = resolve_token(py, &module, &registry, &current, &token.kind);
+            let resolved =
+                resolve_token(py, &module, &registry, &current, &data, &token.kind);
 
             match resolved {
                 Ok(value) => current = value,
@@ -3306,7 +3475,7 @@ impl RustDictWalk {
         value: PyObject,
     ) -> PyResult<PyObject> {
         if let Ok(filter_expr) = path_filter.bind(py).extract::<String>() {
-            if let Some(pipeline) = compile_builtin_pipeline(py, &filter_expr) {
+            if let Some(pipeline) = compile_builtin_pipeline(py, &filter_expr, None) {
                 return apply_builtin_pipeline(py, value, &pipeline);
             }
         }

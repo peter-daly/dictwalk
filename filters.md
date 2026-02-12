@@ -123,4 +123,3 @@ dictwalk.get(data, "a.created|$to_datetime|$timestamp")
 dictwalk.get({"a": {"users": [{"id": 1}, {"id": 2}]}}, "a.users[?id==$even].id[]")
 # [2]
 ```
-

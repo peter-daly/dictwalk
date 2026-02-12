@@ -7,6 +7,9 @@ wheels/
 *.egg-info
 
 target/
+dictwalk/_dictwalk_rs*.so
+dictwalk/_dictwalk_rs*.pyd
+dictwalk/_dictwalk_rs*.dll
 
 # Virtual environments
 .venv
