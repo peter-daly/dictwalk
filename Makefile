@@ -1,6 +1,4 @@
-.PHONY: rust-build rust-build-release test lint type deptry precommit build benchmark release ci
-
-BENCHMARK_ARGS ?=
+.PHONY: rust-build rust-build-release test lint type deptry precommit build release ci
 
 rust-build:
 	uv run --with maturin maturin develop --manifest-path rust/Cargo.toml --release
@@ -25,10 +23,6 @@ precommit:
 
 build:
 	uv build
-
-benchmark:
-	$(MAKE) rust-build-release
-	uv run python scripts/benchmark_backends.py $(BENCHMARK_ARGS)
 
 release:
 	@test -n "$$PYPI_TOKEN" || (echo "PYPI_TOKEN is not set"; exit 1)

@@ -137,7 +137,9 @@ def test_run_filter_function__builtin_len():
 
 
 def test_run_filter_function__builtin_pick():
-    assert dictwalk.run_filter_function("$pick('a', 'c')", {"a": 1, "b": 2, "c": 3}) == {
+    assert dictwalk.run_filter_function(
+        "$pick('a', 'c')", {"a": 1, "b": 2, "c": 3}
+    ) == {
         "a": 1,
         "c": 3,
     }
@@ -223,7 +225,10 @@ def test_run_filter_function__builtin_strip():
 
 
 def test_run_filter_function__builtin_replace():
-    assert dictwalk.run_filter_function("$replace('world', 'there')", "hello world") == "hello there"
+    assert (
+        dictwalk.run_filter_function("$replace('world', 'there')", "hello world")
+        == "hello there"
+    )
 
 
 def test_run_filter_function__builtin_split():
@@ -243,7 +248,10 @@ def test_run_filter_function__builtin_endswith():
 
 
 def test_run_filter_function__builtin_matches():
-    assert dictwalk.run_filter_function("$matches('hello\\\\s+world')", "hello world") is True
+    assert (
+        dictwalk.run_filter_function("$matches('hello\\\\s+world')", "hello world")
+        is True
+    )
 
 
 def test_run_filter_function__builtin_default():
@@ -278,9 +286,9 @@ def test_run_filter_function__builtin_to_datetime():
 
 def test_run_filter_function__builtin_timestamp():
     expected = datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc).timestamp()
-    assert dictwalk.run_filter_function("$timestamp", "2024-01-02T03:04:05Z") == pytest.approx(
-        expected
-    )
+    assert dictwalk.run_filter_function(
+        "$timestamp", "2024-01-02T03:04:05Z"
+    ) == pytest.approx(expected)
 
 
 def test_run_filter_function__builtin_age_seconds():

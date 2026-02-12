@@ -4,15 +4,17 @@ __pycache__/
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
 
+# Rust-generated files
 target/
+rust/target/
 dictwalk/_dictwalk_rs*.so
 dictwalk/_dictwalk_rs*.pyd
 dictwalk/_dictwalk_rs*.dll
 
 # Virtual environments
-.venv
+.venv/
 
 .tox/
 .pytest_cache/

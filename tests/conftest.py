@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+
 def _load_rust_backend() -> Any | None:
     try:
         from dictwalk import _dictwalk_rs  # type: ignore[attr-defined]
@@ -31,7 +32,9 @@ def _discover_backends() -> list[tuple[str, Any]]:
         return list(available.items())
 
     requested_ids = [item.strip() for item in requested.split(",") if item.strip()]
-    missing = [backend_id for backend_id in requested_ids if backend_id not in available]
+    missing = [
+        backend_id for backend_id in requested_ids if backend_id not in available
+    ]
     if missing:
         raise RuntimeError(
             "Requested test backends are unavailable: "
