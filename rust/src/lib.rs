@@ -1616,7 +1616,7 @@ struct PredicateParser<'py> {
     idx: usize,
 }
 
-impl<'py> PredicateParser<'py> {
+impl PredicateParser<'_> {
     fn parse(mut self) -> Result<PredicateExpr, String> {
         let result = self.parse_or()?;
         if self.idx != self.tokens.len() {
@@ -3261,6 +3261,7 @@ fn unset_filter_token(
 #[derive(Default)]
 struct RustDictWalk;
 
+#[allow(clippy::useless_conversion)]
 #[pymethods]
 impl RustDictWalk {
     #[new]
