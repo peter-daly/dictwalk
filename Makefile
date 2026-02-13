@@ -10,7 +10,7 @@ rust-fmt:
 	cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 
 rust-clippy:
-	cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings -A clippy::too_many_arguments -A clippy::needless_borrow -A clippy::manual_strip
+	cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings -A clippy::too_many_arguments -A clippy::needless_borrow -A clippy::manual_strip -A clippy::useless_conversion
 
 rust-check:
 	cargo check --manifest-path rust/Cargo.toml

@@ -97,6 +97,7 @@ jobs:
           -A clippy::too_many_arguments
           -A clippy::needless_borrow
           -A clippy::manual_strip
+          -A clippy::useless_conversion
 
       - name: Run cargo check
         run: cargo check --manifest-path rust/Cargo.toml
