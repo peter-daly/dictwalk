@@ -10,7 +10,7 @@
 > 
 > This is now just a very advanced hammer in search of a nail, could your usecase be that nail?
 > 
-> I know what you're thinking, *this could replace those horrible nested dict functions that I have to mainain in one of my projects*, but don't do it's not worth it.
+> I know what you're thinking, *this could replace those horrible nested dict functions that I have to mainain in one of my projects*. Don't do it's not worth it.
 > 
 > Now in version 1, it's been converted to rust, so now it's much much faster and doing nothing important.
 
