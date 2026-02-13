@@ -1784,8 +1784,7 @@ fn compile_filter_matcher(
         } else {
             FieldValueResolver::CurrentItemTransform(None)
         }
-    } else if let Some(field_path_filter) = resolve_predicate_filter(module, registry, py, field)?
-    {
+    } else if let Some(field_path_filter) = resolve_predicate_filter(module, registry, py, field)? {
         FieldValueResolver::PredicateFilter(field_path_filter)
     } else {
         FieldValueResolver::Key(field.to_string())
@@ -1878,7 +1877,11 @@ fn filter_matches_compiled(
         ValueMatcher::Literal(_value)
             if matcher.raw_value.starts_with("$$root") && root_data.is_some() =>
         {
-            resolve_root_reference_value(py, root_data.expect("checked is_some"), &matcher.raw_value)?
+            resolve_root_reference_value(
+                py,
+                root_data.expect("checked is_some"),
+                &matcher.raw_value,
+            )?
         }
         ValueMatcher::Literal(value) => value.clone_ref(py),
         _ => py.None(),
@@ -3281,14 +3284,8 @@ impl RustDictWalk {
         if base_path == "." {
             let mut current = data.clone_ref(py);
             if let Some(transform) = output_transform {
-                current = apply_output_transform(
-                    py,
-                    &module,
-                    &registry,
-                    &current,
-                    &transform,
-                    &data,
-                )?;
+                current =
+                    apply_output_transform(py, &module, &registry, &current, &transform, &data)?;
             }
             return Ok(current);
         }
@@ -3302,8 +3299,7 @@ impl RustDictWalk {
                 continue;
             }
 
-            let resolved =
-                resolve_token(py, &module, &registry, &current, &data, &token.kind);
+            let resolved = resolve_token(py, &module, &registry, &current, &data, &token.kind);
 
             match resolved {
                 Ok(value) => current = value,
@@ -3325,14 +3321,7 @@ impl RustDictWalk {
         }
 
         if let Some(transform) = output_transform {
-            current = apply_output_transform(
-                py,
-                &module,
-                &registry,
-                &current,
-                &transform,
-                &data,
-            )?;
+            current = apply_output_transform(py, &module, &registry, &current, &transform, &data)?;
         }
 
         Ok(current)
@@ -3357,8 +3346,7 @@ impl RustDictWalk {
                 continue;
             }
 
-            let resolved =
-                resolve_token(py, &module, &registry, &current, &data, &token.kind);
+            let resolved = resolve_token(py, &module, &registry, &current, &data, &token.kind);
 
             match resolved {
                 Ok(value) => current = value,
