@@ -11,6 +11,17 @@ permissions:
   contents: read
 
 jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run actionlint
+        uses: reviewdog/action-actionlint@v1
+
   tox:
     name: ${{ matrix.tox_env }}
     runs-on: ubuntu-latest
@@ -39,6 +50,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Rust
+        if: startsWith(matrix.tox_env, 'py')
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        if: startsWith(matrix.tox_env, 'py')
+        uses: Swatinem/rust-cache@v2
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -52,3 +71,68 @@ jobs:
 
       - name: Run tox
         run: uv run tox -e ${{ matrix.tox_env }}
+
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo fmt
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
+      - name: Run cargo clippy
+        run: >
+          cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+          -A clippy::too_many_arguments
+          -A clippy::needless_borrow
+          -A clippy::manual_strip
+          -A clippy::useless_conversion
+
+      - name: Run cargo check
+        run: cargo check --manifest-path rust/Cargo.toml
+
+      - name: Run cargo test
+        run: cargo test --manifest-path rust/Cargo.toml
+
+  backend-smoke:
+    name: backend-smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Rust extension in active venv
+        run: uv run --with maturin maturin develop --manifest-path rust/Cargo.toml
+
+      - name: Run backend smoke tests
+        env:
+          DICTWALK_TEST_BACKENDS: rust
+        run: uv run pytest -q

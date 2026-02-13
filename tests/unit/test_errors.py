@@ -1,6 +1,7 @@
 import pytest
 from dictwalk import dictwalk
 from dictwalk.errors import (
+    DictWalkError,
     DictWalkResolutionError,
     DictWalkParseError,
 )
@@ -50,3 +51,12 @@ def test_unset_path_strict_raises_when_path_missing():
     with pytest.raises(DictWalkResolutionError):
         dictwalk.unset({"a": {"b": {}}}, "a.b.c", strict=True)
 
+
+def test_register_path_filter_raises_when_custom_filter_registration_is_attempted():
+    with pytest.raises(DictWalkError):
+        dictwalk.register_path_filter("triple", lambda value: value * 3)
+
+
+def test_get_path_filter_raises_when_accessing_filter_objects():
+    with pytest.raises(DictWalkError):
+        dictwalk.get_path_filter("double")
