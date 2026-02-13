@@ -636,14 +636,23 @@ Collections:
 - `$len`: length
 - `$max`: max for list/tuple, otherwise passthrough
 - `$min`: min for list/tuple, otherwise passthrough
-- `$sum`: sum for list/tuple, otherwise passthrough
-- `$avg`: average for list/tuple, otherwise passthrough
 - `$unique`: deduplicate list while preserving order
 - `$sorted(reverse=False)`: sort list/tuple
 - `$first`: first item for list/tuple
 - `$last`: last item for list/tuple
 - `$pick(*keys)`: keep only selected dict keys
 - `$unpick(*keys)`: remove selected dict keys
+
+Statistics:
+- `$sum`: sum for list/tuple, otherwise passthrough
+- `$avg`: average for list/tuple, otherwise passthrough
+- `$pctile(p)`: percentile of list/tuple (`p` in `0..100`, linear interpolation)
+- `$median`: median of list/tuple
+- `$q1`: 25th percentile of list/tuple
+- `$q3`: 75th percentile of list/tuple
+- `$iqr`: interquartile range (`q3 - q1`)
+- `$mode`: most frequent value in list/tuple (ties pick first encountered)
+- `$stdev`: population standard deviation of list/tuple
 
 Null/fallback:
 - `$default(value)`: fallback when current value is `None`
@@ -685,6 +694,7 @@ From `dictwalk.errors`:
 - `DictWalkResolutionError`
 
 Use `strict=True` when you want explicit failures instead of fallback defaults.
+
 
 ## Development
 

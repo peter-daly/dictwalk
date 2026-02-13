@@ -172,6 +172,52 @@ def test_run_filter_function__builtin_pct():
     assert dictwalk.run_filter_function("$pct(25)", 200) == 50.0
 
 
+def test_run_filter_function__builtin_pctile():
+    assert dictwalk.run_filter_function("$pctile(50)", [1, 2, 3, 4, 5]) == 3.0
+
+
+def test_run_filter_function__builtin_pctile_with_interpolation():
+    assert dictwalk.run_filter_function("$pctile(25)", [1, 2, 3, 4]) == 1.75
+
+
+def test_run_filter_function__builtin_pctile_empty_collection():
+    assert dictwalk.run_filter_function("$pctile(50)", []) is None
+
+
+def test_run_filter_function__builtin_median():
+    assert dictwalk.run_filter_function("$median", [1, 2, 3, 4]) == 2.5
+
+
+def test_run_filter_function__builtin_q1():
+    assert dictwalk.run_filter_function("$q1", [1, 2, 3, 4]) == 1.75
+
+
+def test_run_filter_function__builtin_q3():
+    assert dictwalk.run_filter_function("$q3", [1, 2, 3, 4]) == 3.25
+
+
+def test_run_filter_function__builtin_iqr():
+    assert dictwalk.run_filter_function("$iqr", [1, 2, 3, 4]) == 1.5
+
+
+def test_run_filter_function__builtin_mode():
+    assert dictwalk.run_filter_function("$mode", [1, 2, 2, 3]) == 2
+
+
+def test_run_filter_function__builtin_mode_tie_picks_first_seen():
+    assert dictwalk.run_filter_function("$mode", [2, 1, 2, 1]) == 2
+
+
+def test_run_filter_function__builtin_mode_empty_collection():
+    assert dictwalk.run_filter_function("$mode", []) is None
+
+
+def test_run_filter_function__builtin_stdev():
+    assert dictwalk.run_filter_function("$stdev", [1, 2, 3, 4]) == pytest.approx(
+        1.118033988749895
+    )
+
+
 def test_run_filter_function__builtin_between():
     assert dictwalk.run_filter_function("$between(1, 10)", 5) is True
 

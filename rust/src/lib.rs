@@ -84,6 +84,13 @@ enum BuiltinFilter {
     Log(Option<PyObject>),
     Exp,
     Pct(PyObject),
+    Pctile(PyObject),
+    Median,
+    Q1,
+    Q3,
+    Iqr,
+    Mode,
+    Stdev,
     Between(PyObject, PyObject),
     Sum,
     Avg,
@@ -794,6 +801,13 @@ fn compile_builtin_filter(py: Python<'_>, name: &str, args: &[PyObject]) -> Opti
         ("log", 1) => Some(BuiltinFilter::Log(Some(args[0].clone_ref(py)))),
         ("exp", 0) => Some(BuiltinFilter::Exp),
         ("pct", 1) => Some(BuiltinFilter::Pct(args[0].clone_ref(py))),
+        ("pctile", 1) => Some(BuiltinFilter::Pctile(args[0].clone_ref(py))),
+        ("median", 0) => Some(BuiltinFilter::Median),
+        ("q1", 0) => Some(BuiltinFilter::Q1),
+        ("q3", 0) => Some(BuiltinFilter::Q3),
+        ("iqr", 0) => Some(BuiltinFilter::Iqr),
+        ("mode", 0) => Some(BuiltinFilter::Mode),
+        ("stdev", 0) => Some(BuiltinFilter::Stdev),
         ("between", 2) => Some(BuiltinFilter::Between(
             args[0].clone_ref(py),
             args[1].clone_ref(py),
@@ -999,6 +1013,41 @@ fn as_datetime(
     Ok(Some(dt.into()))
 }
 
+fn collect_numeric_sequence(py: Python<'_>, value: &PyObject) -> PyResult<Option<Vec<f64>>> {
+    let value_bound = value.bind(py);
+    if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>()) {
+        return Ok(None);
+    }
+
+    let len = value_bound.len()?;
+    let mut values: Vec<f64> = Vec::with_capacity(len);
+    for idx in 0..len {
+        let item_obj: PyObject = value_bound.get_item(idx)?.into();
+        let float_obj = call_builtin1(py, "float", &item_obj)?;
+        values.push(float_obj.bind(py).extract::<f64>()?);
+    }
+
+    Ok(Some(values))
+}
+
+fn percentile_value(sorted_values: &[f64], percentile: f64) -> Option<f64> {
+    if sorted_values.is_empty() || !(0.0..=100.0).contains(&percentile) {
+        return None;
+    }
+    if sorted_values.len() == 1 {
+        return Some(sorted_values[0]);
+    }
+
+    let rank = (percentile / 100.0) * (sorted_values.len() as f64 - 1.0);
+    let lower_idx = rank.floor() as usize;
+    let upper_idx = rank.ceil() as usize;
+    let fraction = rank - lower_idx as f64;
+
+    let lower = sorted_values[lower_idx];
+    let upper = sorted_values[upper_idx];
+    Some(lower + (upper - lower) * fraction)
+}
+
 fn apply_builtin_filter(
     py: Python<'_>,
     value: &PyObject,
@@ -1190,6 +1239,118 @@ fn apply_builtin_filter(
             let value_float = call_builtin1(py, "float", value)?;
             let scale = apply_binary_op(py, &percent_float, "__truediv__", &100f64.to_object(py))?;
             apply_binary_op(py, &value_float, "__mul__", &scale)
+        }
+        BuiltinFilter::Pctile(percentile) => {
+            let Some(mut values) = collect_numeric_sequence(py, value)? else {
+                return Ok(value.clone_ref(py));
+            };
+            if values.is_empty() {
+                return Ok(py.None());
+            }
+
+            let p_obj = call_builtin1(py, "float", percentile)?;
+            let p = p_obj.bind(py).extract::<f64>()?;
+            values.sort_by(|a, b| a.total_cmp(b));
+            let Some(result) = percentile_value(&values, p) else {
+                return Ok(py.None());
+            };
+            Ok(result.to_object(py))
+        }
+        BuiltinFilter::Median => {
+            let Some(mut values) = collect_numeric_sequence(py, value)? else {
+                return Ok(value.clone_ref(py));
+            };
+            if values.is_empty() {
+                return Ok(py.None());
+            }
+            values.sort_by(|a, b| a.total_cmp(b));
+            let result = percentile_value(&values, 50.0).expect("non-empty checked");
+            Ok(result.to_object(py))
+        }
+        BuiltinFilter::Q1 => {
+            let Some(mut values) = collect_numeric_sequence(py, value)? else {
+                return Ok(value.clone_ref(py));
+            };
+            if values.is_empty() {
+                return Ok(py.None());
+            }
+            values.sort_by(|a, b| a.total_cmp(b));
+            let result = percentile_value(&values, 25.0).expect("non-empty checked");
+            Ok(result.to_object(py))
+        }
+        BuiltinFilter::Q3 => {
+            let Some(mut values) = collect_numeric_sequence(py, value)? else {
+                return Ok(value.clone_ref(py));
+            };
+            if values.is_empty() {
+                return Ok(py.None());
+            }
+            values.sort_by(|a, b| a.total_cmp(b));
+            let result = percentile_value(&values, 75.0).expect("non-empty checked");
+            Ok(result.to_object(py))
+        }
+        BuiltinFilter::Iqr => {
+            let Some(mut values) = collect_numeric_sequence(py, value)? else {
+                return Ok(value.clone_ref(py));
+            };
+            if values.is_empty() {
+                return Ok(py.None());
+            }
+            values.sort_by(|a, b| a.total_cmp(b));
+            let q1 = percentile_value(&values, 25.0).expect("non-empty checked");
+            let q3 = percentile_value(&values, 75.0).expect("non-empty checked");
+            Ok((q3 - q1).to_object(py))
+        }
+        BuiltinFilter::Mode => {
+            let value_bound = value.bind(py);
+            if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>())
+            {
+                return Ok(value.clone_ref(py));
+            }
+
+            let len = value_bound.len()?;
+            if len == 0 {
+                return Ok(py.None());
+            }
+
+            let mut best: PyObject = py.None();
+            let mut best_count: usize = 0;
+
+            for idx in 0..len {
+                let candidate: PyObject = value_bound.get_item(idx)?.into();
+                let mut count = 0usize;
+                for j in 0..len {
+                    let item: PyObject = value_bound.get_item(j)?.into();
+                    if compare_values(py, &item, &candidate, "==").unwrap_or(false) {
+                        count += 1;
+                    }
+                }
+                if count > best_count {
+                    best_count = count;
+                    best = candidate;
+                }
+            }
+
+            Ok(best)
+        }
+        BuiltinFilter::Stdev => {
+            let Some(values) = collect_numeric_sequence(py, value)? else {
+                return Ok(value.clone_ref(py));
+            };
+            if values.is_empty() {
+                return Ok(py.None());
+            }
+            let n = values.len() as f64;
+            let mean = values.iter().sum::<f64>() / n;
+            let variance = values
+                .iter()
+                .map(|x| {
+                    let diff = *x - mean;
+                    diff * diff
+                })
+                .sum::<f64>()
+                / n;
+            Ok(variance.sqrt().to_object(py))
         }
         BuiltinFilter::Between(min_value, max_value) => {
             let ge_min = compare_with_fallback(py, value, min_value, ">=")?;
