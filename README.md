@@ -1,17 +1,17 @@
 # dictwalk
 
 > This library is the result started as an idea to write jq queries for a Python Dict for a reason I can't event remember anymore.
-> 
+>
 > It's current form emerged because I kept asking the AI to add one more feature, then one more, then one more.
 >
 > Then I asked the AI to come up with features and I said screw it add them all.
-> 
+>
 > This is bored-developer + tokens to burn + scope creep in library form.
-> 
+>
 > This is now just a very advanced hammer in search of a nail, could your usecase be that nail?
-> 
+>
 > I know what you're thinking, *this could replace those horrible nested dict functions that I have to mainain in one of my projects*. Don't do it's not worth it.
-> 
+>
 > Now in version 1, it's been converted to rust, so now it's much much faster and doing nothing important.
 
 `dictwalk` is a small utility for traversing and mutating nested Python dict/list data using path expressions.
