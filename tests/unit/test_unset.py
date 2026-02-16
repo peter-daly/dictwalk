@@ -45,6 +45,39 @@ def test_unset__removes_filter_matched_items_at_terminal_filter_path():
     assert data == expected
 
 
+def test_unset__keeps_even_numbers_in_scalar_list_using_current_item_predicate():
+    data = {"a": {"b": [1, 2, 3, 4, 5]}}
+    path = "a.b[?.|$even==False]"
+    expected = {"a": {"b": [2, 4]}}
+
+    result = dictwalk.unset(data, path)
+
+    assert result is data
+    assert data == expected
+
+
+def test_unset__removes_even_numbers_in_scalar_list_using_current_item_predicate():
+    data = {"a": {"b": [1, 2, 3, 4, 5]}}
+    path = "a.b[?.|$even==True]"
+    expected = {"a": {"b": [1, 3, 5]}}
+
+    result = dictwalk.unset(data, path)
+
+    assert result is data
+    assert data == expected
+
+
+def test_unset__keeps_values_greater_than_threshold_in_scalar_list():
+    data = {"a": {"b": [1, 2, 3, 4, 5]}}
+    path = "a.b[?.|$gt(3)==False]"
+    expected = {"a": {"b": [4, 5]}}
+
+    result = dictwalk.unset(data, path)
+
+    assert result is data
+    assert data == expected
+
+
 def test_unset__unsets_list_index_at_terminal_path():
     data = {"a": {"b": [{"id": 1}, {"id": 2}, {"id": 3}]}}
     path = "a.b[1]"

@@ -524,6 +524,25 @@ dictwalk.unset(obj, "a.users[?id>1]")
 # {"a": {"users": [{"id": 1}]}}
 ```
 
+In-place list filtering with `unset`:
+
+```python
+obj = {"a": {"b": [1, 2, 3, 4, 5]}}
+
+# Keep even values (remove non-matches)
+dictwalk.unset(obj, "a.b[?.|$even==False]")
+# {"a": {"b": [2, 4]}}
+
+# Remove even values
+dictwalk.unset(obj, "a.b[?.|$even==True]")
+# {"a": {"b": [1, 3, 5]}}
+```
+
+General predicate style for in-place filtering:
+- Keep condition `P`: unset `P == False`
+- Remove condition `P`: unset `P == True`
+- For scalar-list current-item predicates, use `?.|$filter...` on the left side.
+
 Remove list index and slice:
 
 ```python
