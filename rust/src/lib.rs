@@ -2182,6 +2182,24 @@ fn path_uses_root_token(tokens: &[ParsedToken]) -> bool {
         .any(|token| matches!(token.kind, TokenKind::Root))
 }
 
+fn validate_read_path_root_token(
+    py: Python<'_>,
+    path: &str,
+    tokens: &[ParsedToken],
+) -> PyResult<()> {
+    for (index, token) in tokens.iter().enumerate() {
+        if matches!(token.kind, TokenKind::Root) && index != 0 {
+            return Err(make_parse_error(
+                py,
+                path,
+                Some(&token.raw),
+                "The '$$root' token is only allowed at the start of a read path; mid-path usage is not supported.",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn ensure_path_resolves(
     py: Python<'_>,
     module: &Bound<'_, PyModule>,
@@ -3453,6 +3471,7 @@ impl RustDictWalk {
         }
 
         let tokens = parse_path(py, &module, &registry, &base_path)?;
+        validate_read_path_root_token(py, &base_path, &tokens)?;
         let mut current = data.clone_ref(py);
 
         for token in tokens {
@@ -3500,6 +3519,7 @@ impl RustDictWalk {
         let module = py.import_bound("dictwalk.dictwalk")?;
         let registry = load_registry(py)?;
         let tokens = parse_path(py, &module, &registry, path)?;
+        validate_read_path_root_token(py, path, &tokens)?;
         let mut current = data.clone_ref(py);
 
         for token in tokens {

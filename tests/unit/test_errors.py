@@ -22,6 +22,16 @@ def test_path_exists_raises_parse_error_for_legacy_left_side_filter_function_syn
         dictwalk.exists({"a": {"b": ["hello", "world", "foo", "bar"]}}, "a.b[?$len>3]")
 
 
+def test_get_raises_parse_error_for_root_token_mid_path():
+    with pytest.raises(DictWalkParseError):
+        dictwalk.get({"a": {"b": {"c": 1}}, "x": 2}, "a.b.$$root.x")
+
+
+def test_exists_raises_parse_error_for_root_token_mid_path():
+    with pytest.raises(DictWalkParseError):
+        dictwalk.exists({"a": {"b": {"c": 1}}, "x": 2}, "a.b.$$root.x")
+
+
 def test_set_raises_parse_error_for_root_token():
     with pytest.raises(DictWalkParseError):
         dictwalk.set({"a": {"b": {"c": 1}}, "x": 2}, "a.b.$$root.x", 9)

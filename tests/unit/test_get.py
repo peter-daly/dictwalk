@@ -1,4 +1,6 @@
+import pytest
 from dictwalk import dictwalk
+from dictwalk.errors import DictWalkParseError
 
 
 def test_get__returns_root_entity_for_dot_path():
@@ -19,13 +21,12 @@ def test_get__returns_root_entity_field_for_root_token_at_start():
     assert dictwalk.get(data, path, default=default) == expected
 
 
-def test_get__returns_root_entity_field_for_root_token_mid_path():
+def test_get__raises_parse_error_for_root_token_mid_path():
     data = {"a": {"b": {"c": 1}}, "x": 2}
     path = "a.b.$$root.x"
-    default = None
-    expected = 2
 
-    assert dictwalk.get(data, path, default=default) == expected
+    with pytest.raises(DictWalkParseError):
+        dictwalk.get(data, path)
 
 
 def test_get__nested_scalar():
@@ -339,12 +340,12 @@ def test_get__nested_path_exists():
     assert dictwalk.exists(data, path) is expected
 
 
-def test_get__path_exists_with_root_token_mid_path():
+def test_get__path_exists_raises_parse_error_for_root_token_mid_path():
     data = {"a": {"b": {"c": 1}}, "x": 2}
     path = "a.b.$$root.x"
-    expected = True
 
-    assert dictwalk.exists(data, path) is expected
+    with pytest.raises(DictWalkParseError):
+        dictwalk.exists(data, path)
 
 
 def test_get__mapped_path_exists():

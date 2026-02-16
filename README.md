@@ -174,7 +174,12 @@ Special root token support in read paths:
 
 ```text
 $$root.x
-a.b.$$root.x
+```
+
+`$$root` must be the first token in a read path. Mid-path usage is invalid:
+
+```text
+a.b.$$root.x  # raises DictWalkParseError
 ```
 
 ## `dictwalk.exists(data, path, strict=False) -> bool`
@@ -260,9 +265,13 @@ Root token:
 ```python
 dictwalk.get(data, "$$root.x")
 # 2
+```
 
+Invalid mid-path root token:
+
+```python
 dictwalk.get(data, "a.b.$$root.x")
-# 2
+# raises DictWalkParseError
 ```
 
 Missing path with default:
