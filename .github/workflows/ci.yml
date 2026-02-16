@@ -136,3 +136,70 @@ jobs:
         env:
           DICTWALK_TEST_BACKENDS: rust
         run: uv run pytest -q
+
+  check-version-ahead:
+    name: check-version-ahead
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs:
+      - actionlint
+      - tox
+      - rust
+      - backend-smoke
+    outputs:
+      package_version: ${{ steps.compare.outputs.package_version }}
+      latest_tag: ${{ steps.compare.outputs.latest_tag }}
+      should_release: ${{ steps.compare.outputs.should_release }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Compare package version to latest tag
+        id: compare
+        run: |
+          PACKAGE_VERSION="$(uv version --short)"
+          LATEST_TAG="$(git tag --list 'v*' --sort=-v:refname | head -n1 || true)"
+          SHOULD_RELEASE="false"
+
+          if [ -z "${LATEST_TAG}" ]; then
+            SHOULD_RELEASE="true"
+          else
+            LATEST_VERSION="${LATEST_TAG#v}"
+            HIGHEST="$(printf '%s\n%s\n' "${LATEST_VERSION}" "${PACKAGE_VERSION}" | sort -V | tail -n1)"
+            if [ "${HIGHEST}" = "${PACKAGE_VERSION}" ] && [ "${PACKAGE_VERSION}" != "${LATEST_VERSION}" ]; then
+              SHOULD_RELEASE="true"
+            fi
+          fi
+
+          echo "package_version=${PACKAGE_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "latest_tag=${LATEST_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "should_release=${SHOULD_RELEASE}" >> "${GITHUB_OUTPUT}"
+
+      - name: Show release decision
+        run: |
+          echo "Package version: ${{ steps.compare.outputs.package_version }}"
+          echo "Latest tag: ${{ steps.compare.outputs.latest_tag }}"
+          echo "Should release: ${{ steps.compare.outputs.should_release }}"
+
+  release-if-version-ahead:
+    name: release-if-version-ahead
+    if: needs.check-version-ahead.outputs.should_release == 'true'
+    needs:
+      - check-version-ahead
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    secrets: inherit
