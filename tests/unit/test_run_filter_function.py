@@ -234,6 +234,43 @@ def test_run_filter_function__builtin_unique():
     assert dictwalk.run_filter_function("$unique", [1, 2, 2, 3, 1]) == [1, 2, 3]
 
 
+def test_run_filter_function__builtin_reverse():
+    assert dictwalk.run_filter_function("$reverse", [1, 2, 3]) == [3, 2, 1]
+
+
+def test_run_filter_function__builtin_chunk():
+    assert dictwalk.run_filter_function("$chunk(2)", [1, 2, 3, 4, 5]) == [
+        [1, 2],
+        [3, 4],
+        [5],
+    ]
+
+
+def test_run_filter_function__builtin_chunk_non_positive_size_returns_none():
+    assert dictwalk.run_filter_function("$chunk(0)", [1, 2, 3]) is None
+
+
+def test_run_filter_function__builtin_flatten_one_level():
+    assert dictwalk.run_filter_function("$flatten", [[1, 2], [3], 4]) == [1, 2, 3, 4]
+
+
+def test_run_filter_function__builtin_flatten_deep():
+    assert dictwalk.run_filter_function("$flatten_deep", [[1, [2, [3]]], 4]) == [1, 2, 3, 4]
+
+
+def test_run_filter_function__builtin_flatten_mixed_list_and_tuple():
+    assert dictwalk.run_filter_function("$flatten", ([1, 2], (3, 4), 5)) == [1, 2, 3, 4, 5]
+
+
+def test_run_filter_function__builtin_flatten_keeps_deeper_nesting():
+    assert dictwalk.run_filter_function("$flatten", [[1, [2]], 3]) == [1, [2], 3]
+
+
+def test_run_filter_function__builtin_flatten_passthrough_non_collection():
+    value = {"a": 1}
+    assert dictwalk.run_filter_function("$flatten", value) == value
+
+
 def test_run_filter_function__builtin_sorted():
     assert dictwalk.run_filter_function("$sorted", [3, 1, 2]) == [1, 2, 3]
 

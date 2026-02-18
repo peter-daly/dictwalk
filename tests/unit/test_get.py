@@ -47,9 +47,29 @@ def test_get__list_map_values():
     assert dictwalk.get(data, path, default=default) == expected
 
 
+def test_get__list_map_values_with_output_transform():
+    data = {
+        "a": {
+            "b": [
+                {"id": 1, "c": 1},
+                {"id": 2, "c": 2},
+                {"id": 3, "c": 3},
+                {"id": 4, "c": 4},
+                {"id": 5, "c": 5},
+                {"id": 6, "c": 6},
+            ]
+        }
+    }
+    path = "a.b[?.id==$even].c[]|$double[]|$sum"
+    default = None
+    expected = 24
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
 def test_get__filter_and_map():
     data = {"a": {"b": [{"id": "1", "c": 10}, {"id": "2", "c": 20}]}}
-    path = "a.b[?id==1].c[]"
+    path = "a.b[?.id==1].c[]"
     default = None
     expected = [10]
 
@@ -58,7 +78,7 @@ def test_get__filter_and_map():
 
 def test_get__filter_and_map_using_registered_path_filter():
     data = {"a": {"b": [{"id": 1, "c": 10}, {"id": 2, "c": 20}, {"id": 3, "c": 30}]}}
-    path = "a.b[?id==$even].c[]"
+    path = "a.b[?.id==$even].c[]"
     default = None
     expected = [20]
 
@@ -69,7 +89,7 @@ def test_get__filter_and_map_using_piped_registered_path_filters():
     data = {
         "a": {"b": [{"id": "1", "c": 10}, {"id": "2", "c": 20}, {"id": "3", "c": 30}]}
     }
-    path = "a.b[?id==$int|$even].c[]"
+    path = "a.b[?.id==$int|$even].c[]"
     default = None
     expected = [20]
 
@@ -78,7 +98,7 @@ def test_get__filter_and_map_using_piped_registered_path_filters():
 
 def test_get__filter_and_map_using_registered_path_filter_with_args():
     data = {"a": {"b": [{"id": 1, "c": 10}, {"id": 2, "c": 20}, {"id": 3, "c": 30}]}}
-    path = "a.b[?id==$gt(1)].c[]"
+    path = "a.b[?.id==$gt(1)].c[]"
     default = None
     expected = [20, 30]
 
@@ -87,7 +107,7 @@ def test_get__filter_and_map_using_registered_path_filter_with_args():
 
 def test_get__filter_and_map_using_greater_than_operator():
     data = {"a": {"b": [{"id": 1, "c": 10}, {"id": 2, "c": 20}, {"id": 3, "c": 30}]}}
-    path = "a.b[?id>1].c[]"
+    path = "a.b[?.id>1].c[]"
     default = None
     expected = [20, 30]
 
@@ -96,7 +116,7 @@ def test_get__filter_and_map_using_greater_than_operator():
 
 def test_get__filter_and_map_using_less_than_or_equal_operator():
     data = {"a": {"b": [{"id": 1, "c": 10}, {"id": 2, "c": 20}, {"id": 3, "c": 30}]}}
-    path = "a.b[?id<=2].c[]"
+    path = "a.b[?.id<=2].c[]"
     default = None
     expected = [10, 20]
 
@@ -107,7 +127,7 @@ def test_get__filter_and_map_using_not_equal_operator():
     data = {
         "a": {"b": [{"id": "1", "c": 10}, {"id": "2", "c": 20}, {"id": "3", "c": 30}]}
     }
-    path = "a.b[?id!=2].c[]"
+    path = "a.b[?.id!=2].c[]"
     default = None
     expected = [10, 30]
 
@@ -116,7 +136,7 @@ def test_get__filter_and_map_using_not_equal_operator():
 
 def test_get__filter_and_map_using_namespaced_filter():
     data = {"a": {"b": [{"id": 1, "c": 10}, {"id": 2, "c": 20}, {"id": 3, "c": 30}]}}
-    path = "a.b[?id==$gt(1)].c[]"
+    path = "a.b[?.id==$gt(1)].c[]"
     default = None
     expected = [20, 30]
 
@@ -134,7 +154,7 @@ def test_get__filter_and_map_using_boolean_and():
             ]
         }
     }
-    path = "a.b[?id==$gt(1)&&$lt(4)].c[]"
+    path = "a.b[?.id==$gt(1)&&$lt(4)].c[]"
     default = None
     expected = [20, 30]
 
@@ -152,7 +172,7 @@ def test_get__filter_and_map_using_boolean_or():
             ]
         }
     }
-    path = "a.b[?id==$lt(2)||$gt(3)].c[]"
+    path = "a.b[?.id==$lt(2)||$gt(3)].c[]"
     default = None
     expected = [10, 40]
 
@@ -170,7 +190,7 @@ def test_get__filter_and_map_using_boolean_not():
             ]
         }
     }
-    path = "a.b[?id==!$even].c[]"
+    path = "a.b[?.id==!$even].c[]"
     default = None
     expected = [10, 30]
 
@@ -188,7 +208,7 @@ def test_get__filter_and_map_using_boolean_grouping():
             ]
         }
     }
-    path = "a.b[?id==($lt(2)||$gt(3))&&$odd].c[]"
+    path = "a.b[?.id==($lt(2)||$gt(3))&&$odd].c[]"
     default = None
     expected = [10]
 
@@ -262,9 +282,18 @@ def test_get__get_path_value_with_predicate_filter_and_output_transform():
     data = {
         "a": {"b": [{"id": "1", "c": 10}, {"id": "2", "c": 20}, {"id": "3", "c": 30}]}
     }
-    path = "a.b[?id==$int|$even].c[]|$string"
+    path = "a.b[?.id==$int|$even].c[]|$string"
     default = None
     expected = "[20]"
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__predicates_on_list_elements_using_current_item():
+    data = {"a": {"b": [1, 2, 3, 4, 5]}}
+    path = "a.b[?.>3]|$double[]|$sum"
+    default = None
+    expected = 18
 
     assert dictwalk.get(data, path, default=default) == expected
 
@@ -274,6 +303,69 @@ def test_get__get_list_piped_out_to_filters():
     path = "a.b|$max"
     default = None
     expected = 5
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_list_piped_out_to_multiple_filters():
+    data = {
+        "a": {
+            "b": [
+                {"id": 1, "c": 10},
+                {"id": 2, "c": 20},
+                {"id": 3, "c": 30},
+                {"id": 4, "c": 40},
+            ]
+        }
+    }
+    path = "a.b[?.id==$even].c[]|$add(2)[]|$double[]|$pow(2)[]|$sum"
+    default = None
+    expected = 8992
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_list_piped_out_to_reverse():
+    data = {"a": {"b": [1, 2, 3, 4, 5]}}
+    path = "a.b|$reverse"
+    default = None
+    expected = [5, 4, 3, 2, 1]
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_list_piped_out_to_chunk():
+    data = {"a": {"b": [1, 2, 3, 4, 5]}}
+    path = "a.b|$chunk(2)"
+    default = None
+    expected = [[1, 2], [3, 4], [5]]
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_list_piped_out_to_flatten():
+    data = {"a": {"b": [[1, 2], [3, 4], 5]}}
+    path = "a.b|$flatten"
+    default = None
+    expected = [1, 2, 3, 4, 5]
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_list_piped_out_to_flatten_deep_then_sum():
+    data = {"a": {"b": [[1, [2, [3]]], 4, 5]}}
+    path = "a.b|$flatten_deep|$sum"
+    default = None
+    expected = 15
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_list_piped_out_to_flatten_then_sum():
+    data = {"a": {"b": [[1, 2], [3, 4], 5]}}
+    path = "a.b|$flatten|$sum"
+    default = None
+    expected = 15
 
     assert dictwalk.get(data, path, default=default) == expected
 
@@ -358,7 +450,7 @@ def test_get__mapped_path_exists():
 
 def test_get__filtered_path_exists():
     data = {"a": {"b": [{"id": "1"}, {"id": "2"}]}}
-    path = "a.b[?id==1]"
+    path = "a.b[?.id==1]"
     expected = True
 
     assert dictwalk.exists(data, path) is expected
@@ -366,7 +458,7 @@ def test_get__filtered_path_exists():
 
 def test_get__filter_path_exists_using_registered_path_filter():
     data = {"a": {"b": [{"id": 1}, {"id": 2}]}}
-    path = "a.b[?id==$even]"
+    path = "a.b[?.id==$even]"
     expected = True
 
     assert dictwalk.exists(data, path) is expected
@@ -374,7 +466,7 @@ def test_get__filter_path_exists_using_registered_path_filter():
 
 def test_get__filter_path_exists_using_piped_registered_path_filters():
     data = {"a": {"b": [{"id": "1"}, {"id": "2"}]}}
-    path = "a.b[?id==$int|$even]"
+    path = "a.b[?.id==$int|$even]"
     expected = True
 
     assert dictwalk.exists(data, path) is expected
@@ -382,7 +474,7 @@ def test_get__filter_path_exists_using_piped_registered_path_filters():
 
 def test_get__filter_path_exists_using_registered_path_filter_with_args():
     data = {"a": {"b": [{"id": 1}, {"id": 2}]}}
-    path = "a.b[?id==$gt(1)]"
+    path = "a.b[?.id==$gt(1)]"
     expected = True
 
     assert dictwalk.exists(data, path) is expected
@@ -390,7 +482,7 @@ def test_get__filter_path_exists_using_registered_path_filter_with_args():
 
 def test_get__filter_path_exists_using_greater_than_or_equal_operator():
     data = {"a": {"b": [{"id": 1}, {"id": 2}]}}
-    path = "a.b[?id>=2]"
+    path = "a.b[?.id>=2]"
     expected = True
 
     assert dictwalk.exists(data, path) is expected
@@ -398,7 +490,7 @@ def test_get__filter_path_exists_using_greater_than_or_equal_operator():
 
 def test_get__filter_path_exists_even_when_operator_filter_has_no_matches():
     data = {"a": {"b": [{"id": 1}, {"id": 2}]}}
-    path = "a.b[?id<1]"
+    path = "a.b[?.id<1]"
     expected = True
 
     assert dictwalk.exists(data, path) is expected
@@ -406,7 +498,7 @@ def test_get__filter_path_exists_even_when_operator_filter_has_no_matches():
 
 def test_get__filter_path_exists_using_boolean_and():
     data = {"a": {"b": [{"id": 1}, {"id": 2}, {"id": 3}]}}
-    path = "a.b[?id==$gt(1)&&$odd]"
+    path = "a.b[?.id==$gt(1)&&$odd]"
     expected = True
 
     assert dictwalk.exists(data, path) is expected
@@ -414,7 +506,7 @@ def test_get__filter_path_exists_using_boolean_and():
 
 def test_get__filter_path_exists_using_boolean_not():
     data = {"a": {"b": [{"id": 1}, {"id": 2}, {"id": 3}]}}
-    path = "a.b[?id==!$odd]"
+    path = "a.b[?.id==!$odd]"
     expected = True
 
     assert dictwalk.exists(data, path) is expected
@@ -478,7 +570,7 @@ def test_get__type_mismatch():
 
 def test_get__root_passed_into_predicate():
     data = {"a": [{"b": 2}, {"b": 20}], "x": 10}
-    path = "a[?b>$$root.x].b"
+    path = "a[?.b>$$root.x].b"
     default = None
     expected = [20]
     assert dictwalk.get(data, path, default=default) == expected

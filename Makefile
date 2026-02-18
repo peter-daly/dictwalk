@@ -1,4 +1,4 @@
-.PHONY: rust-build rust-build-release rust-fmt rust-clippy rust-check rust-test rust-ci test lint type deptry precommit build release ci
+.PHONY: rust-build rust-build-release rust-fmt rust-clippy rust-check rust-test rust-ci test lint type deptry precommit build release ci benchmark
 
 rust-build:
 	uv run --with maturin maturin develop --manifest-path rust/Cargo.toml --release
@@ -35,6 +35,9 @@ deptry:
 precommit:
 	uv run pre-commit run --all-files
 
+benchmark:
+	uv run tox -e benchbro
+	
 build:
 	uv build
 
@@ -43,4 +46,4 @@ release:
 	uv publish --token "$$PYPI_TOKEN"
 
 ci: rust-ci
-	uv run tox -e py310,py311,py312,py313,py314,lint,type,deptry
+	uv run tox -e py310,py311,py312,py313,py314,lint,type,deptry,benchbro

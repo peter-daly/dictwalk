@@ -1,7 +1,7 @@
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyFloat, PyInt, PyList, PyModule, PyString, PyTuple};
+use pyo3::types::{PyAny, PyDict, PyFloat, PyInt, PyList, PyModule, PyString, PyTuple};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -95,6 +95,10 @@ enum BuiltinFilter {
     Sum,
     Avg,
     Unique,
+    Reverse,
+    Chunk(PyObject),
+    Flatten,
+    FlattenDeep,
     Sorted(Option<PyObject>),
     First,
     Last,
@@ -320,12 +324,12 @@ fn validate_filter_token(
     operator: &str,
     value: &str,
 ) -> PyResult<()> {
-    if field.starts_with('$') {
+    if !field.starts_with('.') {
         return Err(make_parse_error(
             py,
             &format!("{list_key}[?{field}{operator}{value}]"),
             Some(field),
-            "Left-hand predicate filter functions must use '?.|$name' syntax (for example: '[?.|$len>3]').",
+            "Predicate field expressions must start with '.' (for example: '[?.id==1]' or '[?.|$len>3]').",
         ));
     }
 
@@ -340,16 +344,13 @@ fn validate_filter_token(
                 &format!("Invalid left-hand predicate expression '{field}'."),
             ));
         }
-    } else {
-        // Validate expression syntax for field-side predicate filter expressions.
-        if let Err(message) = compile_builtin_or_boolean_predicate(py, field) {
-            return Err(make_parse_error(
-                py,
-                &format!("{list_key}[?{field}{operator}{value}]"),
-                Some(field),
-                &message,
-            ));
-        }
+    } else if field.len() == 1 {
+        return Err(make_parse_error(
+            py,
+            &format!("{list_key}[?{field}{operator}{value}]"),
+            Some(field),
+            "Predicate field expression cannot be empty. Use '[?.field ...]' or '[?.|$filter ...]'.",
+        ));
     }
 
     // Validate right-side predicate expression/filter syntax.
@@ -815,6 +816,10 @@ fn compile_builtin_filter(py: Python<'_>, name: &str, args: &[PyObject]) -> Opti
         ("sum", 0) => Some(BuiltinFilter::Sum),
         ("avg", 0) => Some(BuiltinFilter::Avg),
         ("unique", 0) => Some(BuiltinFilter::Unique),
+        ("reverse", 0) => Some(BuiltinFilter::Reverse),
+        ("chunk", 1) => Some(BuiltinFilter::Chunk(args[0].clone_ref(py))),
+        ("flatten", 0) => Some(BuiltinFilter::Flatten),
+        ("flatten_deep", 0) => Some(BuiltinFilter::FlattenDeep),
         ("sorted", 0) => Some(BuiltinFilter::Sorted(None)),
         ("sorted", 1) => Some(BuiltinFilter::Sorted(Some(args[0].clone_ref(py)))),
         ("first", 0) => Some(BuiltinFilter::First),
@@ -1046,6 +1051,20 @@ fn percentile_value(sorted_values: &[f64], percentile: f64) -> Option<f64> {
     let lower = sorted_values[lower_idx];
     let upper = sorted_values[upper_idx];
     Some(lower + (upper - lower) * fraction)
+}
+
+fn flatten_deep_into(value: &Bound<'_, PyAny>, flattened: &Bound<'_, PyList>) -> PyResult<()> {
+    if value.is_instance_of::<PyList>() || value.is_instance_of::<PyTuple>() {
+        let value_len = value.len()?;
+        for idx in 0..value_len {
+            let nested = value.get_item(idx)?;
+            flatten_deep_into(&nested, flattened)?;
+        }
+        return Ok(());
+    }
+
+    flattened.append(value)?;
+    Ok(())
 }
 
 fn apply_builtin_filter(
@@ -1384,6 +1403,80 @@ fn apply_builtin_filter(
             let fromkeys = dict_type.getattr("fromkeys")?;
             let dedup_dict = fromkeys.call1((value.clone_ref(py),))?;
             call_builtin1(py, "list", &dedup_dict.into())
+        }
+        BuiltinFilter::Reverse => {
+            let value_bound = value.bind(py);
+            if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>())
+            {
+                return Ok(value.clone_ref(py));
+            }
+
+            let reversed = PyList::empty_bound(py);
+            let value_len = value_bound.len()?;
+            for idx in (0..value_len).rev() {
+                reversed.append(value_bound.get_item(idx)?)?;
+            }
+            Ok(reversed.into())
+        }
+        BuiltinFilter::Chunk(size_value) => {
+            let value_bound = value.bind(py);
+            if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>())
+            {
+                return Ok(value.clone_ref(py));
+            }
+
+            let chunk_size_obj = call_builtin1(py, "int", size_value)?;
+            let chunk_size = chunk_size_obj.bind(py).extract::<isize>()?;
+            if chunk_size <= 0 {
+                return Ok(py.None());
+            }
+
+            let chunked = PyList::empty_bound(py);
+            let value_len = value_bound.len()? as isize;
+            let mut start = 0isize;
+            while start < value_len {
+                let end = (start + chunk_size).min(value_len);
+                let chunk = PyList::empty_bound(py);
+                for idx in start..end {
+                    chunk.append(value_bound.get_item(idx as usize)?)?;
+                }
+                chunked.append(chunk)?;
+                start += chunk_size;
+            }
+            Ok(chunked.into())
+        }
+        BuiltinFilter::Flatten => {
+            let value_bound = value.bind(py);
+            if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>())
+            {
+                return Ok(value.clone_ref(py));
+            }
+
+            let flattened = PyList::empty_bound(py);
+            let value_len = value_bound.len()?;
+            for idx in 0..value_len {
+                let item = value_bound.get_item(idx)?;
+                if item.is_instance_of::<PyList>() || item.is_instance_of::<PyTuple>() {
+                    let nested_len = item.len()?;
+                    for nested_idx in 0..nested_len {
+                        flattened.append(item.get_item(nested_idx)?)?;
+                    }
+                } else {
+                    flattened.append(item)?;
+                }
+            }
+            Ok(flattened.into())
+        }
+        BuiltinFilter::FlattenDeep => {
+            let value_bound = value.bind(py);
+            if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>())
+            {
+                return Ok(value.clone_ref(py));
+            }
+
+            let flattened = PyList::empty_bound(py);
+            flatten_deep_into(value_bound, &flattened)?;
+            Ok(flattened.into())
         }
         BuiltinFilter::Sorted(reverse) => {
             let value_bound = value.bind(py);
@@ -1945,6 +2038,8 @@ fn compile_filter_matcher(
         } else {
             FieldValueResolver::CurrentItemTransform(None)
         }
+    } else if let Some(field_key) = field.strip_prefix('.') {
+        FieldValueResolver::Key(field_key.to_string())
     } else if let Some(field_path_filter) = resolve_predicate_filter(module, registry, py, field)? {
         FieldValueResolver::PredicateFilter(field_path_filter)
     } else {
@@ -3032,7 +3127,11 @@ fn set_filter_token(
             && write_options.create_filter_match
         {
             let new_item = PyDict::new_bound(py);
-            new_item.set_item(field, value)?;
+            let field_key = match &matcher.field_resolver {
+                FieldValueResolver::Key(key) => key.as_str(),
+                _ => field,
+            };
+            new_item.set_item(field_key, value)?;
             list.append(new_item.clone())?;
             matches.push(true);
         }

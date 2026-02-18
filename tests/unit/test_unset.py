@@ -25,7 +25,7 @@ def test_unset__unsets_mapped_key_from_all_list_items():
 
 def test_unset__unsets_key_from_filter_matches():
     data = {"a": {"b": [{"id": 1, "c": 10}, {"id": 2, "c": 20}]}}
-    path = "a.b[?id==2].c"
+    path = "a.b[?.id==2].c"
     expected = {"a": {"b": [{"id": 1, "c": 10}, {"id": 2}]}}
 
     result = dictwalk.unset(data, path)
@@ -36,7 +36,7 @@ def test_unset__unsets_key_from_filter_matches():
 
 def test_unset__removes_filter_matched_items_at_terminal_filter_path():
     data = {"a": {"b": [{"id": 1}, {"id": 2}, {"id": 3}]}}
-    path = "a.b[?id>1]"
+    path = "a.b[?.id>1]"
     expected = {"a": {"b": [{"id": 1}]}}
 
     result = dictwalk.unset(data, path)

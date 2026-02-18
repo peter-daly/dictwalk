@@ -1,4 +1,43 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable, Protocol, TypeVar, cast, overload
+
+TData = TypeVar("TData")
+TDefault = TypeVar("TDefault")
+
+
+class DictWalkProtocol(Protocol):
+    @overload
+    def get(
+        self, data: Any, path: str, default: None = None, *, strict: bool = False
+    ) -> Any | None: ...
+
+    @overload
+    def get(
+        self, data: Any, path: str, default: TDefault, *, strict: bool = False
+    ) -> Any | TDefault: ...
+
+    def exists(self, data: Any, path: str, *, strict: bool = False) -> bool: ...
+
+    def set(
+        self,
+        data: TData,
+        path: str,
+        value: Any,
+        *,
+        strict: bool = False,
+        create_missing: bool = True,
+        create_filter_match: bool = True,
+        overwrite_incompatible: bool = True,
+    ) -> TData: ...
+
+    def unset(self, data: TData, path: str, *, strict: bool = False) -> TData: ...
+
+    def run_filter_function(self, path_filter: str, value: Any) -> Any: ...
+
+    def register_path_filter(
+        self, name: str, path_filter: Callable[[Any], Any]
+    ) -> None: ...
+
+    def get_path_filter(self, name: str) -> Callable[[Any], Any]: ...
 
 
 def _load_rust_backend() -> Any:
@@ -19,11 +58,16 @@ def _load_rust_backend() -> Any:
     return backend
 
 
-dictwalk = _load_rust_backend()
-DictWalk = type(dictwalk)
+_backend = _load_rust_backend()
+dictwalk: DictWalkProtocol = cast(DictWalkProtocol, _backend)
+
+if TYPE_CHECKING:
+    DictWalk = DictWalkProtocol
+else:
+    DictWalk = type(_backend)
 
 
-def register_path_filter(name: str, path_filter: Any) -> Any:
+def register_path_filter(name: str, path_filter: Callable[[Any], Any]) -> None:
     return dictwalk.register_path_filter(name, path_filter)
 
 

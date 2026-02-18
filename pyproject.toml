@@ -17,6 +17,7 @@ python-source = "."
 
 [dependency-groups]
 dev = [
+    "benchbro>=0.4.2",
     "deptry",
     "pre-commit",
     "pytest>=9.0.2",
@@ -30,3 +31,5 @@ target-version = "py310"
 
 [tool.deptry]
 known_first_party = ["dictwalk"]
+extend_exclude = ["benchmarks"]
+

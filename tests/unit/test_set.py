@@ -27,7 +27,7 @@ def test_set__creates_list_for_map_path():
 
 def test_set__creates_filtered_item():
     data = {}
-    path = "a.b[?id==3].c"
+    path = "a.b[?.id==3].c"
     value = 5
     expected = {"a": {"b": [{"id": "3", "c": 5}]}}
 
@@ -39,7 +39,7 @@ def test_set__creates_filtered_item():
 
 def test_set__updates_only_filter_matches():
     data = {"a": {"b": [{"id": "3", "c": 1}, {"id": "4", "c": 2}]}}
-    path = "a.b[?id==3].c"
+    path = "a.b[?.id==3].c"
     value = 7
     expected = {"a": {"b": [{"id": "3", "c": 7}, {"id": "4", "c": 2}]}}
 
@@ -66,6 +66,30 @@ def test_set__sets_terminal_map_values():
     path = "a.b[]"
     value = 9
     expected = {"a": {"b": [9, 9, 9]}}
+
+    result = dictwalk.set(data, path, value)
+
+    assert result is data
+    assert data == expected
+
+
+def test_set__transforms_lists_when_mapped_filter_function_is_passed_in_value():
+    data = {"a": {"b": [1, 2, 3]}}
+    path = "a.b"
+    value = "$double[]"
+    expected = {"a": {"b": [2, 4, 6]}}
+
+    result = dictwalk.set(data, path, value)
+
+    assert result is data
+    assert data == expected
+
+
+def test_set__rewrties_list_when_passed_in_without_mapping():
+    data = {"a": {"b": [1, 2, 3]}}
+    path = "a.b"
+    value = "$len"
+    expected = {"a": {"b": 3}}
 
     result = dictwalk.set(data, path, value)
 
@@ -215,7 +239,7 @@ def test_set__updates_only_items_matching_operator_filter():
             ]
         }
     }
-    path = "a.b[?id>1].value"
+    path = "a.b[?.id>1].value"
     value = 0
     expected = {
         "a": {
@@ -240,7 +264,7 @@ def test_set__updates_only_items_matching_boolean_filter():
             ]
         }
     }
-    path = "a.b[?id==$gt(1)&&$lt(4)].value"
+    path = "a.b[?.id==$gt(1)&&$lt(4)].value"
     value = -1
     expected = {
         "a": {
@@ -349,7 +373,7 @@ def test_set__does_not_create_missing_when_disabled():
 
 def test_set__does_not_create_filter_match_when_disabled():
     data = {"a": {"b": [{"id": "1", "c": 10}]}}
-    dictwalk.set(data, "a.b[?id==3].c", 99, create_filter_match=False)
+    dictwalk.set(data, "a.b[?.id==3].c", 99, create_filter_match=False)
     assert data == {"a": {"b": [{"id": "1", "c": 10}]}}
 
 

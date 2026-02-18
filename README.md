@@ -77,14 +77,14 @@ names = dictwalk.get(data, "a.users[].name")
 # ["Ada", "Lin"]
 
 # Filter and map
-active_names = dictwalk.get(data, "a.users[?active==True].name[]")
+active_names = dictwalk.get(data, "a.users[?.active==True].name[]")
 # ["Ada"]
 
 # Write
-dictwalk.set(data, "a.users[?id==2].active", True)
+dictwalk.set(data, "a.users[?.id==2].active", True)
 
 # Unset
-dictwalk.unset(data, "a.users[?id==1].name")
+dictwalk.unset(data, "a.users[?.id==1].name")
 ```
 
 ## Path Syntax
@@ -116,8 +116,8 @@ a.items[1:3]
 ### Predicates
 
 ```text
-a.items[?id==1]
-a.items[?score>=10]
+a.items[?.id==1]
+a.items[?.score>=10]
 ```
 
 List predicates support:
@@ -128,9 +128,9 @@ List predicates support:
 Use registered filters on predicate values:
 
 ```text
-a.items[?id==$even]
-a.items[?id==$gt(5)&&$lt(10)]
-a.items[?id==!$odd]
+a.items[?.id==$even]
+a.items[?.id==$gt(5)&&$lt(10)]
+a.items[?.id==!$odd]
 ```
 
 Boolean operators in predicate filters:
@@ -163,6 +163,7 @@ a.list|$double[]|$max
 
 `dictwalk` exposed from `dictwalk.__init__` is the Rust extension object directly.
 Python methods call into Rust for `get`, `exists`, `set`, `unset`, and `run_filter_function`.
+The package ships PEP 561 type information (`py.typed`) for Python type checkers.
 
 ## `dictwalk.get(data, path, default=None, strict=False)`
 
@@ -315,26 +316,26 @@ dictwalk.get(data, "a.users[1:3].name[]")
 Predicate filters:
 
 ```python
-dictwalk.get(data, "a.users[?id==2].name[]")
+dictwalk.get(data, "a.users[?.id==2].name[]")
 # ["Lin"]
 
-dictwalk.get(data, "a.users[?score>10].name[]")
+dictwalk.get(data, "a.users[?.score>10].name[]")
 # ["Lin", "Mia"]
 
-dictwalk.get(data, "a.users[?score<=20].name[]")
+dictwalk.get(data, "a.users[?.score<=20].name[]")
 # ["Ada", "Lin"]
 ```
 
 Predicate path filters:
 
 ```python
-dictwalk.get(data, "a.users[?id==$even].name[]")
+dictwalk.get(data, "a.users[?.id==$even].name[]")
 # ["Lin"]
 
-dictwalk.get(data, "a.users[?id==$gt(1)&&$lt(3)].name[]")
+dictwalk.get(data, "a.users[?.id==$gt(1)&&$lt(3)].name[]")
 # ["Lin"]
 
-dictwalk.get(data, "a.users[?id==!$odd].name[]")
+dictwalk.get(data, "a.users[?.id==!$odd].name[]")
 # ["Lin"]
 ```
 
@@ -414,7 +415,7 @@ Filtered write:
 
 ```python
 obj = {"a": {"users": [{"id": 1, "active": False}, {"id": 2, "active": False}]}}
-dictwalk.set(obj, "a.users[?id==2].active", True)
+dictwalk.set(obj, "a.users[?.id==2].active", True)
 # {"a": {"users": [{"id": 1, "active": False}, {"id": 2, "active": True}]}}
 ```
 
@@ -422,7 +423,7 @@ Operator filter write:
 
 ```python
 obj = {"a": {"users": [{"id": 1, "score": 10}, {"id": 2, "score": 20}, {"id": 3, "score": 30}]}}
-dictwalk.set(obj, "a.users[?id>1].score", 0)
+dictwalk.set(obj, "a.users[?.id>1].score", 0)
 # {"a": {"users": [{"id": 1, "score": 10}, {"id": 2, "score": 0}, {"id": 3, "score": 0}]}}
 ```
 
@@ -480,7 +481,7 @@ dictwalk.set(obj, "a.b.c", 1, create_missing=False)
 # {}
 
 obj = {"a": {"users": [{"id": "1", "c": 10}]}}
-dictwalk.set(obj, "a.users[?id==3].c", 99, create_filter_match=False)
+dictwalk.set(obj, "a.users[?.id==3].c", 99, create_filter_match=False)
 # unchanged
 
 obj = {"a": 1}
@@ -512,7 +513,7 @@ Remove field from filtered matches:
 
 ```python
 obj = {"a": {"users": [{"id": 1, "score": 10}, {"id": 2, "score": 20}]}}
-dictwalk.unset(obj, "a.users[?id==2].score")
+dictwalk.unset(obj, "a.users[?.id==2].score")
 # {"a": {"users": [{"id": 1, "score": 10}, {"id": 2}]}}
 ```
 
@@ -520,7 +521,7 @@ Remove items at terminal filtered path:
 
 ```python
 obj = {"a": {"users": [{"id": 1}, {"id": 2}, {"id": 3}]}}
-dictwalk.unset(obj, "a.users[?id>1]")
+dictwalk.unset(obj, "a.users[?.id>1]")
 # {"a": {"users": [{"id": 1}]}}
 ```
 
@@ -592,7 +593,7 @@ This section documents the built-in path filters available in `dictwalk`.
 
 Use filters in:
 - Output transforms: `a.b.c|$double|$string`
-- Predicate expressions: `a.items[?id==$even]`
+- Predicate expressions: `a.items[?.id==$even]`
 - Write transforms: `dictwalk.set(data, "a.items[]", "$inc")`
 
 Usage notes:
@@ -665,6 +666,10 @@ Collections:
 - `$max`: max for list/tuple, otherwise passthrough
 - `$min`: min for list/tuple, otherwise passthrough
 - `$unique`: deduplicate list while preserving order
+- `$reverse`: reverse list/tuple order
+- `$chunk(size)`: split list/tuple into chunks of `size` (returns `None` for `size <= 0`)
+- `$flatten`: flatten one level of nested list/tuple items into a new list
+- `$flatten_deep`: recursively flatten nested list/tuple items into a new list
 - `$sorted(reverse=False)`: sort list/tuple
 - `$first`: first item for list/tuple
 - `$last`: last item for list/tuple
@@ -703,13 +708,22 @@ data = {"a": {"scores": [10, 20, 30], "name": "  ada  ", "created": "2024-01-01T
 dictwalk.get(data, "a.scores|$sum")
 # 60
 
+dictwalk.get({"a": {"nested": [[1, 2], [3], 4]}}, "a.nested|$flatten")
+# [1, 2, 3, 4]
+
+dictwalk.get({"a": {"nested": [[1, [2, [3]]], 4]}}, "a.nested|$flatten_deep")
+# [1, 2, 3, 4]
+
+dictwalk.get({"a": {"items": [1, 2, 3, 4, 5]}}, "a.items|$chunk(2)")
+# [[1, 2], [3, 4], [5]]
+
 dictwalk.get(data, "a.name|$strip|$title")
 # "Ada"
 
 dictwalk.get(data, "a.created|$to_datetime|$timestamp")
 # 1704067200.0
 
-dictwalk.get({"a": {"users": [{"id": 1}, {"id": 2}]}}, "a.users[?id==$even].id[]")
+dictwalk.get({"a": {"users": [{"id": 1}, {"id": 2}]}}, "a.users[?.id==$even].id[]")
 # [2]
 ```
 
