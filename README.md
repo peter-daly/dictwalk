@@ -611,6 +611,7 @@ Numeric:
 - `$sub(amount)`: subtract amount
 - `$mul(factor)`: multiply by factor
 - `$div(divisor)`: divide (returns `None` when divisor is 0)
+- `$idiv(divisor)`: integer divide/floor divide (returns `None` when divisor is 0)
 - `$mod(divisor)`: modulo (returns `None` when divisor is 0)
 - `$neg`: negate value
 - `$pow(exponent)`: raise value to exponent

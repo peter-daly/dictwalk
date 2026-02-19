@@ -100,6 +100,14 @@ def test_run_filter_function__builtin_div():
     assert dictwalk.run_filter_function("$div(2)", 8) == 4.0
 
 
+def test_run_filter_function__builtin_idiv():
+    assert dictwalk.run_filter_function("$idiv(2)", 9) == 4
+
+
+def test_run_filter_function__builtin_idiv_by_zero_returns_none():
+    assert dictwalk.run_filter_function("$idiv(0)", 9) is None
+
+
 def test_run_filter_function__builtin_mod():
     assert dictwalk.run_filter_function("$mod(3)", 8) == 2
 

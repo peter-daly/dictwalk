@@ -64,6 +64,7 @@ enum BuiltinFilter {
     Sub(PyObject),
     Mul(PyObject),
     Div(PyObject),
+    IDiv(PyObject),
     Mod(PyObject),
     Neg,
     Pow(PyObject),
@@ -863,6 +864,7 @@ fn compile_builtin_filter(py: Python<'_>, name: &str, args: &[PyObject]) -> Opti
         ("sub", 1) => Some(BuiltinFilter::Sub(args[0].clone_ref(py))),
         ("mul", 1) => Some(BuiltinFilter::Mul(args[0].clone_ref(py))),
         ("div", 1) => Some(BuiltinFilter::Div(args[0].clone_ref(py))),
+        ("idiv", 1) => Some(BuiltinFilter::IDiv(args[0].clone_ref(py))),
         ("mod", 1) => Some(BuiltinFilter::Mod(args[0].clone_ref(py))),
         _ => None,
     }
@@ -1143,6 +1145,13 @@ fn apply_builtin_filter(
                 return Ok(py.None());
             }
             apply_binary_op(py, value, "__truediv__", rhs)
+        }
+        BuiltinFilter::IDiv(rhs) => {
+            let is_zero = compare_values(py, rhs, &0i32.to_object(py), "==").unwrap_or(false);
+            if is_zero {
+                return Ok(py.None());
+            }
+            apply_binary_op(py, value, "__floordiv__", rhs)
         }
         BuiltinFilter::Mod(rhs) => {
             let is_zero = compare_values(py, rhs, &0i32.to_object(py), "==").unwrap_or(false);

@@ -278,6 +278,15 @@ def test_get__get_path_value_with_output_transform_args():
     assert dictwalk.get(data, path, default=default) == expected
 
 
+def test_get__get_path_value_with_output_transform_idiv():
+    data = {"a": {"b": {"c": 9}}}
+    path = "a.b.c|$idiv(2)"
+    default = None
+    expected = 4
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
 def test_get__get_path_value_with_predicate_filter_and_output_transform():
     data = {
         "a": {"b": [{"id": "1", "c": 10}, {"id": "2", "c": 20}, {"id": "3", "c": 30}]}
