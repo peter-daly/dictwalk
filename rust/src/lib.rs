@@ -39,8 +39,6 @@ static INDEX_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(.+)\[(-?\d+)\]$").expect("valid regex"));
 static SLICE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(.+)\[(-?\d*):(-?\d*)\]$").expect("valid regex"));
-static FILTER_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(.+)\[\?(.+?)(==|!=|>=|<=|>|<)(.+?)\]$").expect("valid regex"));
 static PATH_FILTER_SEGMENT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\$([a-zA-Z_]\w*)(?:\((.*)\))?(\[\])?$").expect("valid regex"));
 
@@ -244,6 +242,170 @@ fn split_path_and_transform(path: &str) -> (String, Option<String>) {
     (path.to_string(), None)
 }
 
+fn parse_filter_token_parts(raw_token: &str) -> Option<(String, String, String, String)> {
+    let start = raw_token.find("[?")?;
+    if !raw_token.ends_with(']') {
+        return None;
+    }
+
+    let list_key = raw_token[..start].to_string();
+    if list_key.is_empty() {
+        return None;
+    }
+
+    let expression = &raw_token[start + 2..raw_token.len() - 1];
+    let mut bracket_depth = 0i32;
+    let mut paren_depth = 0i32;
+    let mut brace_depth = 0i32;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    let chars: Vec<char> = expression.chars().collect();
+    let mut split: Option<(usize, &'static str)> = None;
+
+    let mut i = 0usize;
+    while i < chars.len() {
+        let ch = chars[i];
+        if escaped {
+            escaped = false;
+            i += 1;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            i += 1;
+            continue;
+        }
+
+        if in_single {
+            if ch == '\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double {
+            if ch == '"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        match ch {
+            '\'' => {
+                in_single = true;
+                i += 1;
+                continue;
+            }
+            '"' => {
+                in_double = true;
+                i += 1;
+                continue;
+            }
+            '[' => {
+                bracket_depth += 1;
+                i += 1;
+                continue;
+            }
+            ']' => {
+                bracket_depth -= 1;
+                if bracket_depth < 0 {
+                    return None;
+                }
+                i += 1;
+                continue;
+            }
+            '(' => {
+                paren_depth += 1;
+                i += 1;
+                continue;
+            }
+            ')' => {
+                paren_depth -= 1;
+                if paren_depth < 0 {
+                    return None;
+                }
+                i += 1;
+                continue;
+            }
+            '{' => {
+                brace_depth += 1;
+                i += 1;
+                continue;
+            }
+            '}' => {
+                brace_depth -= 1;
+                if brace_depth < 0 {
+                    return None;
+                }
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+
+        if bracket_depth == 0 && paren_depth == 0 && brace_depth == 0 {
+            if i + 1 < chars.len() {
+                match (chars[i], chars[i + 1]) {
+                    ('=', '=') => {
+                        split = Some((i, "=="));
+                        break;
+                    }
+                    ('!', '=') => {
+                        split = Some((i, "!="));
+                        break;
+                    }
+                    ('>', '=') => {
+                        split = Some((i, ">="));
+                        break;
+                    }
+                    ('<', '=') => {
+                        split = Some((i, "<="));
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            if ch == '>' {
+                split = Some((i, ">"));
+                break;
+            }
+            if ch == '<' {
+                split = Some((i, "<"));
+                break;
+            }
+        }
+
+        i += 1;
+    }
+
+    if in_single
+        || in_double
+        || escaped
+        || bracket_depth != 0
+        || paren_depth != 0
+        || brace_depth != 0
+    {
+        return None;
+    }
+
+    if let Some((index, operator)) = split {
+        let field = expression[..index].trim().to_string();
+        let value = expression[index + operator.len()..].trim().to_string();
+        if field.is_empty() || value.is_empty() {
+            return None;
+        }
+        return Some((list_key, field, operator.to_string(), value));
+    }
+
+    let field = expression.trim().to_string();
+    if field.is_empty() {
+        return None;
+    }
+    Some((list_key, field, "==".to_string(), "$bool".to_string()))
+}
+
 fn parse_token(raw_token: &str) -> Result<TokenKind, String> {
     if raw_token == "$$root" {
         return Ok(TokenKind::Root);
@@ -288,23 +450,10 @@ fn parse_token(raw_token: &str) -> Result<TokenKind, String> {
         return Ok(TokenKind::Slice { key, start, end });
     }
 
-    if let Some(captures) = FILTER_RE.captures(raw_token) {
-        let list_key = captures
-            .get(1)
-            .map(|m| m.as_str().to_string())
-            .ok_or("Failed to parse filter list key.")?;
-        let field = captures
-            .get(2)
-            .map(|m| m.as_str().to_string())
-            .ok_or("Failed to parse filter field.")?;
-        let operator = captures
-            .get(3)
-            .map(|m| m.as_str().to_string())
-            .ok_or("Failed to parse filter operator.")?;
-        let value = captures
-            .get(4)
-            .map(|m| m.as_str().to_string())
-            .ok_or("Failed to parse filter value.")?;
+    if raw_token.contains("[?") {
+        let Some((list_key, field, operator, value)) = parse_filter_token_parts(raw_token) else {
+            return Err("Failed to parse filter token.".to_string());
+        };
         return Ok(TokenKind::Filter {
             list_key,
             field,
@@ -2018,6 +2167,7 @@ enum FieldValueResolver {
     CurrentItemTransform(Option<BuiltinFilterPipeline>),
     PredicateFilter(PredicateExpr),
     Key(String),
+    RelativePath(Vec<ParsedToken>),
 }
 
 enum ValueMatcher {
@@ -2048,7 +2198,12 @@ fn compile_filter_matcher(
             FieldValueResolver::CurrentItemTransform(None)
         }
     } else if let Some(field_key) = field.strip_prefix('.') {
-        FieldValueResolver::Key(field_key.to_string())
+        if field_key.contains('[') || field_key.contains('.') {
+            let field_tokens = parse_path(py, module, registry, field_key)?;
+            FieldValueResolver::RelativePath(field_tokens)
+        } else {
+            FieldValueResolver::Key(field_key.to_string())
+        }
     } else if let Some(field_path_filter) = resolve_predicate_filter(module, registry, py, field)? {
         FieldValueResolver::PredicateFilter(field_path_filter)
     } else {
@@ -2072,6 +2227,8 @@ fn compile_filter_matcher(
 
 fn resolve_filter_field_value_compiled(
     py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
     matcher: &CompiledFilterMatcher,
     item: &PyObject,
 ) -> PyResult<PyObject> {
@@ -2099,17 +2256,39 @@ fn resolve_filter_field_value_compiled(
             }
             Ok(py.None())
         }
+        FieldValueResolver::RelativePath(tokens) => {
+            let mut current = item.clone_ref(py);
+            for token in tokens {
+                if matches!(token.kind, TokenKind::Root) {
+                    current = item.clone_ref(py);
+                    continue;
+                }
+                let resolved = resolve_token(py, module, registry, &current, item, &token.kind);
+                match resolved {
+                    Ok(value) => current = value,
+                    Err(err) => {
+                        if is_soft_resolution_error(py, &err) {
+                            return Ok(py.None());
+                        }
+                        return Err(err);
+                    }
+                }
+            }
+            Ok(current)
+        }
     }
 }
 
 fn filter_matches_compiled(
     py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
     operator: &str,
     matcher: &CompiledFilterMatcher,
     item: &PyObject,
     root_data: Option<&PyObject>,
 ) -> PyResult<bool> {
-    let field_value = resolve_filter_field_value_compiled(py, matcher, item)?;
+    let field_value = resolve_filter_field_value_compiled(py, module, registry, matcher, item)?;
 
     if let ValueMatcher::BuiltinPipeline(pipeline) = &matcher.value_matcher {
         if operator == "==" || operator == "!=" {
@@ -2221,7 +2400,15 @@ fn resolve_filter_token(
     let out = PyList::empty_bound(py);
     for item in source_list.iter() {
         let item_obj: PyObject = item.clone().into();
-        if filter_matches_compiled(py, operator, &matcher, &item_obj, Some(root_data))? {
+        if filter_matches_compiled(
+            py,
+            module,
+            registry,
+            operator,
+            &matcher,
+            &item_obj,
+            Some(root_data),
+        )? {
             out.append(item)?;
         }
     }
@@ -3103,6 +3290,8 @@ fn set_filter_token(
         let item: PyObject = list.get_item(idx)?.into();
         matches.push(filter_matches_compiled(
             py,
+            module,
+            registry,
             operator,
             &matcher,
             &item,
@@ -3523,7 +3712,8 @@ fn unset_filter_token(
         for idx in 0..list.len() {
             let item = list.get_item(idx)?;
             let item_obj: PyObject = item.clone().into();
-            if !filter_matches_compiled(py, operator, &matcher, &item_obj, None)? {
+            if !filter_matches_compiled(py, module, registry, operator, &matcher, &item_obj, None)?
+            {
                 filtered.append(item)?;
             }
         }
@@ -3533,7 +3723,7 @@ fn unset_filter_token(
 
     for idx in 0..list.len() {
         let child: PyObject = list.get_item(idx)?.into();
-        if !filter_matches_compiled(py, operator, &matcher, &child, None)? {
+        if !filter_matches_compiled(py, module, registry, operator, &matcher, &child, None)? {
             continue;
         }
         let updated = unset_recurse(py, module, registry, child, &remaining[1..])?;

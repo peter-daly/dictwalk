@@ -591,3 +591,51 @@ def test_get__root_passed_into_a_filter_function():
     default = None
     expected = 30
     assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__nested_predicate():
+    data = {
+        "a": [
+            {"b": [{"c": 1}, {"c": 2}], "d": 10},
+            {"b": [{"c": 3}, {"c": 4}], "d": 20},
+        ]
+    }
+    path = "a[?.b[?.c==2]].d"
+    default = None
+    expected = [10]
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__nested_predicate_no_matches():
+    data = {
+        "a": [
+            {"b": [{"c": 1}, {"c": 2}], "d": 10},
+            {"b": [{"c": 3}, {"c": 4}], "d": 20},
+        ]
+    }
+    path = "a[?.b[?.c==99]].d"
+    default = None
+    expected = []
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__nested_predicate_multiple_matches():
+    data = {
+        "a": [
+            {"b": [{"c": 2}], "d": 10},
+            {"b": [{"c": 2}, {"c": 4}], "d": 20},
+            {"b": [{"c": 3}], "d": 30},
+        ]
+    }
+    path = "a[?.b[?.c==2]].d"
+    default = None
+    expected = [10, 20]
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__nested_predicate_with_mapped_output():
+    data = {"a": [{"b": [{"c": 2}], "d": [10]}, {"b": [{"c": 3}], "d": [20]}]}
+    path = "a[?.b[?.c==2]].d[]"
+    default = None
+    expected = [[10]]
+    assert dictwalk.get(data, path, default=default) == expected

@@ -12,6 +12,11 @@ def test_get_path_value_raises_parse_error_for_invalid_boolean_filter_expression
         dictwalk.get({"a": {"b": [{"id": 1}]}}, "a.b[?.id==$gt(1)&&].id[]")
 
 
+def test_get_path_value_raises_parse_error_for_malformed_nested_predicate_expression():
+    with pytest.raises(DictWalkParseError):
+        dictwalk.get({"a": [{"b": [{"c": 1}], "d": 10}]}, "a[?.b[?.c==2].d")
+
+
 def test_get_path_value_raises_parse_error_for_legacy_predicate_field_syntax_without_dot():
     with pytest.raises(DictWalkParseError):
         dictwalk.get({"a": {"b": [{"id": 1}]}}, "a.b[?id==1].id[]")

@@ -346,6 +346,16 @@ dictwalk.get({"items": ["hi", "hello", "yo"]}, "items[?.|$len>2]")
 # ["hello"]
 ```
 
+Nested predicates:
+
+```python
+dictwalk.get(
+    {"a": [{"b": [{"c": 1}, {"c": 2}], "d": 10}, {"b": [{"c": 3}], "d": 20}]},
+    "a[?.b[?.c==2]].d",
+)
+# [10]
+```
+
 Wildcards:
 
 ```python
