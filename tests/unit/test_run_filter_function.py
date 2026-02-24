@@ -263,11 +263,22 @@ def test_run_filter_function__builtin_flatten_one_level():
 
 
 def test_run_filter_function__builtin_flatten_deep():
-    assert dictwalk.run_filter_function("$flatten_deep", [[1, [2, [3]]], 4]) == [1, 2, 3, 4]
+    assert dictwalk.run_filter_function("$flatten_deep", [[1, [2, [3]]], 4]) == [
+        1,
+        2,
+        3,
+        4,
+    ]
 
 
 def test_run_filter_function__builtin_flatten_mixed_list_and_tuple():
-    assert dictwalk.run_filter_function("$flatten", ([1, 2], (3, 4), 5)) == [1, 2, 3, 4, 5]
+    assert dictwalk.run_filter_function("$flatten", ([1, 2], (3, 4), 5)) == [
+        1,
+        2,
+        3,
+        4,
+        5,
+    ]
 
 
 def test_run_filter_function__builtin_flatten_keeps_deeper_nesting():
