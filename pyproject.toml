@@ -4,11 +4,13 @@ build-backend = "maturin"
 
 [project]
 name = "dictwalk"
-version = "2.2.0"
+version = "2.2.1"
 description = "Dict path traversal and mutation utilities"
 readme = "README.md"
 requires-python = ">=3.10"
+keywords = ["dict", "json", "path", "traversal", "query", "mutation"]
 dependencies = []
+urls = { Homepage = "https://github.com/peterdaly/dictwalk", Repository = "https://github.com/peterdaly/dictwalk", Documentation = "https://github.com/peterdaly/dictwalk/blob/main/README.md" }
 
 [tool.maturin]
 manifest-path = "rust/Cargo.toml"
@@ -32,4 +34,3 @@ target-version = "py310"
 [tool.deptry]
 known_first_party = ["dictwalk"]
 extend_exclude = ["benchmarks"]
-
