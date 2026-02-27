@@ -105,6 +105,19 @@ a.items[].id
 
 Apply the next token to every item in a list.
 
+Root-list selector variants:
+
+```text
+.[]               # root list map
+.[0]              # root list index
+.[1:3]            # root list slice
+.[?.id==2]        # root list predicate
+$$root[]          # explicit-root list map
+$$root[0]         # explicit-root list index
+$$root[1:3]       # explicit-root list slice
+$$root[?.id==2]   # explicit-root predicate
+```
+
 ### List index and slice
 
 ```text
@@ -175,12 +188,17 @@ Special root token support in read paths:
 
 ```text
 $$root.x
+$$root[]
+$$root[0]
+$$root[1:3]
+$$root[?.id==2]
 ```
 
-`$$root` must be the first token in a read path. Mid-path usage is invalid:
+Root selectors must be the first token in a path. Mid-path usage is invalid:
 
 ```text
 a.b.$$root.x  # raises DictWalkParseError
+a.$$root[0]   # raises DictWalkParseError
 ```
 
 ## `dictwalk.exists(data, path, strict=False) -> bool`
@@ -201,7 +219,8 @@ Mutates and returns the same `data` object.
   - `$$root.some.path|$filter`
 
 Notes:
-- `$$root` is valid in `value`, not in write `path`.
+- Bare `$$root` is valid in `value`, not in write `path`.
+- Bracketed root selectors are valid in write paths: `$$root[]`, `$$root[0]`, `$$root[1:3]`, `$$root[?.id==2]`.
 - With `strict=True`, parent path must already resolve.
 
 ## `dictwalk.unset(data, path, *, strict=False) -> dict`
@@ -266,6 +285,24 @@ Root token:
 ```python
 dictwalk.get(data, "$$root.x")
 # 2
+```
+
+Root-list selectors:
+
+```python
+root_list = [{"id": 1, "name": "Ada"}, {"id": 2, "name": "Lin"}, {"id": 3, "name": "Mia"}]
+
+dictwalk.get(root_list, ".[]")
+# [{"id": 1, "name": "Ada"}, {"id": 2, "name": "Lin"}, {"id": 3, "name": "Mia"}]
+
+dictwalk.get(root_list, "$$root[0].name")
+# "Ada"
+
+dictwalk.get(root_list, ".[1:3].id[]")
+# [2, 3]
+
+dictwalk.get(root_list, "$$root[?.id>1].name[]")
+# ["Lin", "Mia"]
 ```
 
 Invalid mid-path root token:
@@ -475,6 +512,18 @@ dictwalk.set(obj, "a.items[].v", "$$root.source|$double")
 # {"a": {"items": [{"v": 18}, {"v": 18}]}, "source": 9}
 ```
 
+Root-list writes:
+
+```python
+root_list = [{"v": 1}, {"v": 2}, {"v": 3}]
+
+dictwalk.set(root_list, ".[].v", 9)
+# [{"v": 9}, {"v": 9}, {"v": 9}]
+
+dictwalk.set(root_list, "$$root[1:3].v", 5)
+# [{"v": 9}, {"v": 5}, {"v": 5}]
+```
+
 Strict write:
 
 ```python
@@ -563,6 +612,18 @@ dictwalk.unset(obj, "a.nums[1]")
 
 dictwalk.unset(obj, "a.nums[1:3]")
 # {"a": {"nums": [10]}}
+```
+
+Root-list unsets:
+
+```python
+root_list = [{"id": 1, "v": 10}, {"id": 2, "v": 20}, {"id": 3, "v": 30}]
+
+dictwalk.unset(root_list, ".[?.id>1].v")
+# [{"id": 1, "v": 10}, {"id": 2}, {"id": 3}]
+
+dictwalk.unset(root_list, "$$root[?.id==3]")
+# [{"id": 1, "v": 10}, {"id": 2}]
 ```
 
 Unset with slice + nested field:

@@ -42,14 +42,34 @@ def test_exists_raises_parse_error_for_root_token_mid_path():
         dictwalk.exists({"a": {"b": {"c": 1}}, "x": 2}, "a.b.$$root.x")
 
 
+def test_get_raises_parse_error_for_root_selector_mid_path():
+    with pytest.raises(DictWalkParseError):
+        dictwalk.get({"a": [{"id": 1}]}, "a.$$root[0].id")
+
+
+def test_exists_raises_parse_error_for_root_selector_mid_path():
+    with pytest.raises(DictWalkParseError):
+        dictwalk.exists({"a": [{"id": 1}]}, "a.$$root[0].id")
+
+
 def test_set_raises_parse_error_for_root_token():
     with pytest.raises(DictWalkParseError):
         dictwalk.set({"a": {"b": {"c": 1}}, "x": 2}, "a.b.$$root.x", 9)
 
 
+def test_set_raises_parse_error_for_root_selector_mid_path():
+    with pytest.raises(DictWalkParseError):
+        dictwalk.set({"a": [{"id": 1}]}, "a.$$root[0].id", 9)
+
+
 def test_unset_raises_parse_error_for_root_token():
     with pytest.raises(DictWalkParseError):
         dictwalk.unset({"a": {"b": {"c": 1}}, "x": 2}, "a.b.$$root.x")
+
+
+def test_unset_raises_parse_error_for_root_selector_mid_path():
+    with pytest.raises(DictWalkParseError):
+        dictwalk.unset({"a": [{"id": 1}]}, "a.$$root[0].id")
 
 
 def test_get_path_value_strict_raises_resolution_error_for_missing_path():

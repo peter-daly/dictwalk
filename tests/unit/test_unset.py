@@ -147,3 +147,33 @@ def test_unset__no_op_when_target_does_not_exist():
 
     assert result is data
     assert data == expected
+
+
+def test_unset__unsets_root_list_map_selectors():
+    data = [{"v": 1, "x": 10}, {"v": 2, "x": 20}]
+
+    dictwalk.unset(data, ".[].v")
+    assert data == [{"x": 10}, {"x": 20}]
+
+    dictwalk.unset(data, "$$root[]")
+    assert data == []
+
+
+def test_unset__unsets_root_list_index_and_slice_selectors():
+    data = [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]
+
+    dictwalk.unset(data, ".[1]")
+    assert data == [{"id": 1}, {"id": 3}, {"id": 4}]
+
+    dictwalk.unset(data, "$$root[1:3]")
+    assert data == [{"id": 1}]
+
+
+def test_unset__unsets_root_list_filter_selectors():
+    data = [{"id": 1, "v": 10}, {"id": 2, "v": 20}, {"id": 3, "v": 30}]
+
+    dictwalk.unset(data, ".[?.id>1].v")
+    assert data == [{"id": 1, "v": 10}, {"id": 2}, {"id": 3}]
+
+    dictwalk.unset(data, "$$root[?.id==3]")
+    assert data == [{"id": 1, "v": 10}, {"id": 2}]

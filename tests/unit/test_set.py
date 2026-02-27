@@ -325,6 +325,41 @@ def test_set__set_path_value_with_list_slice():
     assert data == expected
 
 
+def test_set__sets_root_list_map_selectors():
+    data = [{"v": 1}, {"v": 2}, {"v": 3}]
+
+    dictwalk.set(data, ".[].v", 9)
+    assert data == [{"v": 9}, {"v": 9}, {"v": 9}]
+
+    dictwalk.set(data, "$$root[].v", 1)
+    assert data == [{"v": 1}, {"v": 1}, {"v": 1}]
+
+
+def test_set__sets_root_list_index_and_slice_selectors():
+    data = [{"v": 1}, {"v": 2}, {"v": 3}, {"v": 4}]
+
+    dictwalk.set(data, ".[1].v", 20)
+    dictwalk.set(data, "$$root[2:4].v", 30)
+    assert data == [{"v": 1}, {"v": 20}, {"v": 30}, {"v": 30}]
+
+
+def test_set__sets_root_list_filter_selectors():
+    data = [{"id": 1, "v": 10}, {"id": 2, "v": 20}, {"id": 3, "v": 30}]
+
+    dictwalk.set(data, ".[?.id>1].v", 0)
+    assert data == [{"id": 1, "v": 10}, {"id": 2, "v": 0}, {"id": 3, "v": 0}]
+
+    dictwalk.set(data, "$$root[?.id==1].v", 99)
+    assert data == [{"id": 1, "v": 99}, {"id": 2, "v": 0}, {"id": 3, "v": 0}]
+
+
+def test_set__sets_root_list_index_with_create_missing():
+    data = [{"v": 1}]
+
+    dictwalk.set(data, ".[2].v", 7)
+    assert data == [{"v": 1}, {}, {"v": 7}]
+
+
 def test_set__set_path_value_with_single_layer_wildcard():
     data = {"a": {"u1": {"enabled": False}, "u2": {"enabled": False}}}
     path = "a.*.enabled"

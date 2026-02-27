@@ -1,6 +1,6 @@
 import pytest
 from dictwalk import dictwalk
-from dictwalk.errors import DictWalkParseError
+from dictwalk.errors import DictWalkParseError, DictWalkResolutionError
 
 
 def test_get__returns_root_entity_for_dot_path():
@@ -27,6 +27,55 @@ def test_get__raises_parse_error_for_root_token_mid_path():
 
     with pytest.raises(DictWalkParseError):
         dictwalk.get(data, path)
+
+
+def test_get__supports_root_list_map_selectors():
+    data = [{"id": 1}, {"id": 2}, {"id": 3}]
+
+    assert dictwalk.get(data, ".[]") == data
+    assert dictwalk.get(data, "$$root[]") == data
+    assert dictwalk.get(data, ".[].id") == [1, 2, 3]
+    assert dictwalk.get(data, "$$root[].id") == [1, 2, 3]
+
+
+def test_get__supports_root_list_index_slice_and_filter_selectors():
+    data = [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]
+
+    assert dictwalk.get(data, ".[0]") == {"id": 1}
+    assert dictwalk.get(data, "$$root[-1]") == {"id": 4}
+    assert dictwalk.get(data, ".[1:3].id[]") == [2, 3]
+    assert dictwalk.get(data, "$$root[?.id>2].id[]") == [3, 4]
+
+
+def test_get__path_exists_for_root_list_selectors():
+    data = [{"id": 1}, {"id": 2}, {"id": 3}]
+
+    assert dictwalk.exists(data, ".[]") is True
+    assert dictwalk.exists(data, "$$root[]") is True
+    assert dictwalk.exists(data, ".[0].id") is True
+    assert dictwalk.exists(data, "$$root[?.id==2].id[]") is True
+
+
+def test_get__root_list_selector_non_list_root_in_non_strict_mode():
+    data = {"a": 1}
+
+    assert dictwalk.get(data, ".[]", default="missing") == "missing"
+    assert dictwalk.get(data, "$$root[]", default="missing") == "missing"
+    assert dictwalk.exists(data, ".[]") is False
+    assert dictwalk.exists(data, "$$root[]") is False
+
+
+def test_get__root_list_selector_non_list_root_in_strict_mode():
+    data = {"a": 1}
+
+    with pytest.raises(DictWalkResolutionError):
+        dictwalk.get(data, ".[]", strict=True)
+    with pytest.raises(DictWalkResolutionError):
+        dictwalk.get(data, "$$root[]", strict=True)
+    with pytest.raises(DictWalkResolutionError):
+        dictwalk.exists(data, ".[]", strict=True)
+    with pytest.raises(DictWalkResolutionError):
+        dictwalk.exists(data, "$$root[]", strict=True)
 
 
 def test_get__nested_scalar():

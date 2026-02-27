@@ -8,6 +8,19 @@ use std::sync::LazyLock;
 #[derive(Clone, Debug)]
 enum TokenKind {
     Root,
+    RootMap,
+    RootIndex {
+        index: isize,
+    },
+    RootSlice {
+        start: Option<isize>,
+        end: Option<isize>,
+    },
+    RootFilter {
+        field: String,
+        operator: String,
+        value: String,
+    },
     Wildcard,
     DeepWildcard,
     Map(String),
@@ -39,6 +52,10 @@ static INDEX_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(.+)\[(-?\d+)\]$").expect("valid regex"));
 static SLICE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(.+)\[(-?\d*):(-?\d*)\]$").expect("valid regex"));
+static ROOT_INDEX_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\[(-?\d+)\]$").expect("valid regex"));
+static ROOT_SLICE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\[(-?\d*):(-?\d*)\]$").expect("valid regex"));
 static PATH_FILTER_SEGMENT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\$([a-zA-Z_]\w*)(?:\((.*)\))?(\[\])?$").expect("valid regex"));
 
@@ -242,18 +259,7 @@ fn split_path_and_transform(path: &str) -> (String, Option<String>) {
     (path.to_string(), None)
 }
 
-fn parse_filter_token_parts(raw_token: &str) -> Option<(String, String, String, String)> {
-    let start = raw_token.find("[?")?;
-    if !raw_token.ends_with(']') {
-        return None;
-    }
-
-    let list_key = raw_token[..start].to_string();
-    if list_key.is_empty() {
-        return None;
-    }
-
-    let expression = &raw_token[start + 2..raw_token.len() - 1];
+fn parse_filter_expression_parts(expression: &str) -> Option<(String, String, String)> {
     let mut bracket_depth = 0i32;
     let mut paren_depth = 0i32;
     let mut brace_depth = 0i32;
@@ -396,19 +402,88 @@ fn parse_filter_token_parts(raw_token: &str) -> Option<(String, String, String, 
         if field.is_empty() || value.is_empty() {
             return None;
         }
-        return Some((list_key, field, operator.to_string(), value));
+        return Some((field, operator.to_string(), value));
     }
 
     let field = expression.trim().to_string();
     if field.is_empty() {
         return None;
     }
-    Some((list_key, field, "==".to_string(), "$bool".to_string()))
+    Some((field, "==".to_string(), "$bool".to_string()))
+}
+
+fn parse_filter_token_parts(raw_token: &str) -> Option<(String, String, String, String)> {
+    let start = raw_token.find("[?")?;
+    if !raw_token.ends_with(']') {
+        return None;
+    }
+
+    let list_key = raw_token[..start].to_string();
+    if list_key.is_empty() {
+        return None;
+    }
+
+    let expression = &raw_token[start + 2..raw_token.len() - 1];
+    let (field, operator, value) = parse_filter_expression_parts(expression)?;
+    Some((list_key, field, operator, value))
+}
+
+fn parse_root_selector_suffix(suffix: &str) -> Result<TokenKind, String> {
+    if suffix == "[]" {
+        return Ok(TokenKind::RootMap);
+    }
+
+    if let Some(captures) = ROOT_INDEX_RE.captures(suffix) {
+        let index = captures
+            .get(1)
+            .and_then(|m| m.as_str().parse::<isize>().ok())
+            .ok_or("Failed to parse list index.")?;
+        return Ok(TokenKind::RootIndex { index });
+    }
+
+    if let Some(captures) = ROOT_SLICE_RE.captures(suffix) {
+        let start = captures
+            .get(1)
+            .map(|m| m.as_str())
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse::<isize>().ok());
+        let end = captures
+            .get(2)
+            .map(|m| m.as_str())
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse::<isize>().ok());
+        return Ok(TokenKind::RootSlice { start, end });
+    }
+
+    if suffix.starts_with("[?") {
+        if !suffix.ends_with(']') {
+            return Err("Failed to parse filter token.".to_string());
+        }
+        let expression = &suffix[2..suffix.len() - 1];
+        let Some((field, operator, value)) = parse_filter_expression_parts(expression) else {
+            return Err("Failed to parse filter token.".to_string());
+        };
+        return Ok(TokenKind::RootFilter {
+            field,
+            operator,
+            value,
+        });
+    }
+
+    Err("Failed to parse root selector token.".to_string())
 }
 
 fn parse_token(raw_token: &str) -> Result<TokenKind, String> {
     if raw_token == "$$root" {
         return Ok(TokenKind::Root);
+    }
+    if let Some(suffix) = raw_token.strip_prefix("$$root") {
+        if !suffix.is_empty() && suffix.starts_with('[') {
+            return parse_root_selector_suffix(suffix);
+        }
+    }
+    if raw_token.starts_with(".[") {
+        return parse_root_selector_suffix(&raw_token[1..]);
     }
     if raw_token == "*" {
         return Ok(TokenKind::Wildcard);
@@ -526,21 +601,45 @@ fn parse_path(
         return Err(make_parse_error(py, path, None, "Path cannot be empty."));
     }
 
+    let mut raw_tokens = split_raw_path_tokens(path);
+    if raw_tokens.len() >= 2
+        && raw_tokens[0].is_empty()
+        && raw_tokens[1].starts_with('[')
+        && raw_tokens[1].ends_with(']')
+    {
+        raw_tokens[1] = format!(".{}", raw_tokens[1]);
+        raw_tokens.remove(0);
+    }
+
     let mut tokens: Vec<ParsedToken> = Vec::new();
-    for raw_token in split_raw_path_tokens(path) {
+    for raw_token in raw_tokens {
         let kind = match parse_token(&raw_token) {
             Ok(parsed) => parsed,
             Err(message) => return Err(make_parse_error(py, path, Some(&raw_token), &message)),
         };
 
-        if let TokenKind::Filter {
-            list_key,
-            field,
-            operator,
-            value,
-        } = &kind
-        {
-            validate_filter_token(py, module, registry, list_key, field, operator, value)?;
+        match &kind {
+            TokenKind::Filter {
+                list_key,
+                field,
+                operator,
+                value,
+            } => {
+                validate_filter_token(py, module, registry, list_key, field, operator, value)?;
+            }
+            TokenKind::RootFilter {
+                field,
+                operator,
+                value,
+            } => {
+                let root_key = if raw_token.starts_with("$$root") {
+                    "$$root"
+                } else {
+                    "."
+                };
+                validate_filter_token(py, module, registry, root_key, field, operator, value)?;
+            }
+            _ => {}
         }
 
         tokens.push(ParsedToken {
@@ -606,6 +705,17 @@ fn resolve_map_token(py: Python<'_>, current: &PyObject, key: &str) -> PyResult<
         }
     }
     Ok(out.into())
+}
+
+fn resolve_root_map_token(py: Python<'_>, current: &PyObject) -> PyResult<PyObject> {
+    let bound = current.bind(py);
+    if !bound.is_instance_of::<PyList>() {
+        return Err(PyTypeError::new_err(format!(
+            "Expected a list for root map '[]', got {}.",
+            get_type_name(&bound)
+        )));
+    }
+    Ok(current.clone_ref(py))
 }
 
 fn iter_child_nodes(py: Python<'_>, node: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
@@ -718,6 +828,23 @@ fn resolve_index_token(
     list.as_any().get_item(index_obj).map(|value| value.into())
 }
 
+fn resolve_root_index_token(
+    py: Python<'_>,
+    current: &PyObject,
+    index: isize,
+) -> PyResult<PyObject> {
+    let bound = current.bind(py);
+    let list = bound.downcast::<PyList>().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "Expected a list for root index '[{index}]', got {}.",
+            get_type_name(&bound)
+        ))
+    })?;
+
+    let index_obj = index.to_object(py);
+    list.as_any().get_item(index_obj).map(|value| value.into())
+}
+
 fn resolve_slice_token(
     py: Python<'_>,
     current: &PyObject,
@@ -775,6 +902,28 @@ fn resolve_slice_token(
 
     for idx in slice_start..slice_end {
         out.append(list.get_item(idx as usize)?)?;
+    }
+    Ok(out.into())
+}
+
+fn resolve_root_slice_token(
+    py: Python<'_>,
+    current: &PyObject,
+    start: Option<isize>,
+    end: Option<isize>,
+) -> PyResult<PyObject> {
+    let bound = current.bind(py);
+    let list = bound.downcast::<PyList>().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "Expected a list for root slice, got {}.",
+            get_type_name(&bound)
+        ))
+    })?;
+
+    let indexes = compute_slice_indexes(list.len(), start, end);
+    let out = PyList::empty_bound(py);
+    for idx in indexes {
+        out.append(list.get_item(idx)?)?;
     }
     Ok(out.into())
 }
@@ -2416,6 +2565,44 @@ fn resolve_filter_token(
     Ok(out.into())
 }
 
+fn resolve_root_filter_token(
+    py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
+    current: &PyObject,
+    root_data: &PyObject,
+    field: &str,
+    operator: &str,
+    value: &str,
+) -> PyResult<PyObject> {
+    let matcher = compile_filter_matcher(py, module, registry, field, value)?;
+    let source_bound = current.bind(py);
+    let source_list = source_bound.downcast::<PyList>().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "Expected a list for root filter, got {}.",
+            get_type_name(&source_bound)
+        ))
+    })?;
+
+    let out = PyList::empty_bound(py);
+    for item in source_list.iter() {
+        let item_obj: PyObject = item.clone().into();
+        if filter_matches_compiled(
+            py,
+            module,
+            registry,
+            operator,
+            &matcher,
+            &item_obj,
+            Some(root_data),
+        )? {
+            out.append(item)?;
+        }
+    }
+
+    Ok(out.into())
+}
+
 fn is_soft_resolution_error(py: Python<'_>, err: &PyErr) -> bool {
     if err.is_instance_of::<PyKeyError>(py) || err.is_instance_of::<PyTypeError>(py) {
         return true;
@@ -2442,6 +2629,16 @@ fn resolve_token(
     kind: &TokenKind,
 ) -> PyResult<PyObject> {
     match kind {
+        TokenKind::RootMap => resolve_root_map_token(py, current),
+        TokenKind::RootIndex { index } => resolve_root_index_token(py, current, *index),
+        TokenKind::RootSlice { start, end } => resolve_root_slice_token(py, current, *start, *end),
+        TokenKind::RootFilter {
+            field,
+            operator,
+            value,
+        } => resolve_root_filter_token(
+            py, module, registry, current, root_data, field, operator, value,
+        ),
         TokenKind::Get(key) => resolve_get_token(py, current, key),
         TokenKind::Map(key) => resolve_map_token(py, current, key),
         TokenKind::Wildcard => resolve_wildcard_token(py, current),
@@ -2467,7 +2664,18 @@ struct WriteOptions {
     overwrite_incompatible: bool,
 }
 
-fn path_uses_root_token(tokens: &[ParsedToken]) -> bool {
+fn token_uses_root_selector(kind: &TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Root
+            | TokenKind::RootMap
+            | TokenKind::RootIndex { .. }
+            | TokenKind::RootSlice { .. }
+            | TokenKind::RootFilter { .. }
+    )
+}
+
+fn path_uses_bare_root_token(tokens: &[ParsedToken]) -> bool {
     tokens
         .iter()
         .any(|token| matches!(token.kind, TokenKind::Root))
@@ -2479,12 +2687,30 @@ fn validate_read_path_root_token(
     tokens: &[ParsedToken],
 ) -> PyResult<()> {
     for (index, token) in tokens.iter().enumerate() {
-        if matches!(token.kind, TokenKind::Root) && index != 0 {
+        if token_uses_root_selector(&token.kind) && index != 0 {
             return Err(make_parse_error(
                 py,
                 path,
                 Some(&token.raw),
-                "The '$$root' token is only allowed at the start of a read path; mid-path usage is not supported.",
+                "Root selectors are only allowed at the start of a path; mid-path usage is not supported.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_write_path_root_selector(
+    py: Python<'_>,
+    path: &str,
+    tokens: &[ParsedToken],
+) -> PyResult<()> {
+    for (index, token) in tokens.iter().enumerate() {
+        if token_uses_root_selector(&token.kind) && index != 0 {
+            return Err(make_parse_error(
+                py,
+                path,
+                Some(&token.raw),
+                "Root selectors are only allowed at the start of a path; mid-path usage is not supported.",
             ));
         }
     }
@@ -2639,6 +2865,56 @@ fn set_recurse(
     }
 
     match &remaining[0].kind {
+        TokenKind::RootMap => set_root_map_token(
+            py,
+            module,
+            registry,
+            current,
+            remaining,
+            new_value,
+            write_options,
+            root_data,
+        ),
+        TokenKind::RootIndex { index } => set_root_index_token(
+            py,
+            module,
+            registry,
+            current,
+            remaining,
+            *index,
+            new_value,
+            write_options,
+            root_data,
+        ),
+        TokenKind::RootSlice { start, end } => set_root_slice_token(
+            py,
+            module,
+            registry,
+            current,
+            remaining,
+            *start,
+            *end,
+            new_value,
+            write_options,
+            root_data,
+        ),
+        TokenKind::RootFilter {
+            field,
+            operator,
+            value,
+        } => set_root_filter_token(
+            py,
+            module,
+            registry,
+            current,
+            remaining,
+            field,
+            operator,
+            value,
+            new_value,
+            write_options,
+            root_data,
+        ),
         TokenKind::Get(key) => set_get_token(
             py,
             module,
@@ -2869,6 +3145,285 @@ fn set_map_token(
     }
 
     dict.set_item(key, list_obj)?;
+    Ok(current)
+}
+
+fn set_root_map_token(
+    py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
+    current: PyObject,
+    remaining: &[ParsedToken],
+    new_value: &PyObject,
+    write_options: WriteOptions,
+    root_data: &PyObject,
+) -> PyResult<PyObject> {
+    let next_kind = remaining.get(1).map(|token| &token.kind);
+    if !current.bind(py).is_instance_of::<PyList>() {
+        return Ok(current);
+    }
+    let list = current.bind(py).downcast::<PyList>()?;
+
+    if remaining.len() == 1 {
+        for idx in 0..list.len() {
+            let existing: PyObject = list.get_item(idx)?.into();
+            let resolved =
+                resolve_new_value(py, module, registry, Some(existing), new_value, root_data)?;
+            list.set_item(idx, resolved)?;
+        }
+        return Ok(current);
+    }
+
+    for idx in 0..list.len() {
+        let mut item: PyObject = list.get_item(idx)?.into();
+        if next_kind.is_some() && !is_dict_or_list(&item.bind(py)) {
+            if !write_options.overwrite_incompatible {
+                continue;
+            }
+            item = new_write_container(py);
+        }
+
+        let updated = set_recurse(
+            py,
+            module,
+            registry,
+            item,
+            &remaining[1..],
+            new_value,
+            write_options,
+            root_data,
+        )?;
+        list.set_item(idx, updated)?;
+    }
+
+    Ok(current)
+}
+
+fn set_root_index_token(
+    py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
+    current: PyObject,
+    remaining: &[ParsedToken],
+    index: isize,
+    new_value: &PyObject,
+    write_options: WriteOptions,
+    root_data: &PyObject,
+) -> PyResult<PyObject> {
+    let next_kind = remaining.get(1).map(|token| &token.kind);
+    if !current.bind(py).is_instance_of::<PyList>() {
+        return Ok(current);
+    }
+    let list = current.bind(py).downcast::<PyList>()?;
+
+    let idx = index;
+    if idx < 0 {
+        if idx < -(list.len() as isize) {
+            return Ok(current);
+        }
+    } else {
+        if !write_options.create_missing {
+            return Ok(current);
+        }
+        while list.len() <= idx as usize {
+            let fill_value = if next_kind.is_some() {
+                new_write_container(py)
+            } else {
+                py.None()
+            };
+            list.append(fill_value)?;
+        }
+    }
+
+    let target_index = if idx < 0 {
+        (list.len() as isize + idx) as usize
+    } else {
+        idx as usize
+    };
+
+    if remaining.len() == 1 {
+        let existing = list.get_item(target_index)?.into();
+        let resolved =
+            resolve_new_value(py, module, registry, Some(existing), new_value, root_data)?;
+        list.set_item(target_index, resolved)?;
+        return Ok(current);
+    }
+
+    let mut item: PyObject = list.get_item(target_index)?.into();
+    if next_kind.is_some() && !is_dict_or_list(&item.bind(py)) {
+        if !write_options.overwrite_incompatible {
+            return Ok(current);
+        }
+        item = new_write_container(py);
+    }
+
+    let updated = set_recurse(
+        py,
+        module,
+        registry,
+        item,
+        &remaining[1..],
+        new_value,
+        write_options,
+        root_data,
+    )?;
+    list.set_item(target_index, updated)?;
+    Ok(current)
+}
+
+fn set_root_slice_token(
+    py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
+    current: PyObject,
+    remaining: &[ParsedToken],
+    start: Option<isize>,
+    end: Option<isize>,
+    new_value: &PyObject,
+    write_options: WriteOptions,
+    root_data: &PyObject,
+) -> PyResult<PyObject> {
+    let next_kind = remaining.get(1).map(|token| &token.kind);
+    if !current.bind(py).is_instance_of::<PyList>() {
+        return Ok(current);
+    }
+    let list = current.bind(py).downcast::<PyList>()?;
+    let indexes = compute_slice_indexes(list.len(), start, end);
+
+    if remaining.len() == 1 {
+        for idx in indexes {
+            let existing = list.get_item(idx)?.into();
+            let resolved =
+                resolve_new_value(py, module, registry, Some(existing), new_value, root_data)?;
+            list.set_item(idx, resolved)?;
+        }
+        return Ok(current);
+    }
+
+    for idx in indexes {
+        let mut item: PyObject = list.get_item(idx)?.into();
+        if next_kind.is_some() && !is_dict_or_list(&item.bind(py)) {
+            if !write_options.overwrite_incompatible {
+                continue;
+            }
+            item = new_write_container(py);
+        }
+        let updated = set_recurse(
+            py,
+            module,
+            registry,
+            item,
+            &remaining[1..],
+            new_value,
+            write_options,
+            root_data,
+        )?;
+        list.set_item(idx, updated)?;
+    }
+
+    Ok(current)
+}
+
+fn set_root_filter_token(
+    py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
+    current: PyObject,
+    remaining: &[ParsedToken],
+    field: &str,
+    operator: &str,
+    value: &str,
+    new_value: &PyObject,
+    write_options: WriteOptions,
+    root_data: &PyObject,
+) -> PyResult<PyObject> {
+    if !current.bind(py).is_instance_of::<PyList>() {
+        return Ok(current);
+    }
+    let list = current.bind(py).downcast::<PyList>()?;
+    let matcher = compile_filter_matcher(py, module, registry, field, value)?;
+
+    let mut matches: Vec<bool> = Vec::with_capacity(list.len());
+    for idx in 0..list.len() {
+        let item: PyObject = list.get_item(idx)?.into();
+        matches.push(filter_matches_compiled(
+            py,
+            module,
+            registry,
+            operator,
+            &matcher,
+            &item,
+            Some(root_data),
+        )?);
+    }
+
+    if !matches.iter().any(|matched| *matched) {
+        let field_uses_item_root = matches!(
+            matcher.field_resolver,
+            FieldValueResolver::CurrentItem
+                | FieldValueResolver::CurrentItemBuiltinPipeline(_)
+                | FieldValueResolver::CurrentItemTransform(_)
+        );
+        let field_path_filter_present = matches!(
+            matcher.field_resolver,
+            FieldValueResolver::CurrentItemBuiltinPipeline(_)
+                | FieldValueResolver::CurrentItemTransform(_)
+                | FieldValueResolver::PredicateFilter(_)
+        );
+        let value_path_filter_present = matches!(
+            matcher.value_matcher,
+            ValueMatcher::BuiltinPipeline(_) | ValueMatcher::PredicateExpr(_)
+        );
+
+        if !field_uses_item_root
+            && !field_path_filter_present
+            && !value_path_filter_present
+            && operator == "=="
+            && write_options.create_missing
+            && write_options.create_filter_match
+        {
+            let new_item = PyDict::new_bound(py);
+            let field_key = match &matcher.field_resolver {
+                FieldValueResolver::Key(key) => key.as_str(),
+                _ => field,
+            };
+            new_item.set_item(field_key, value)?;
+            list.append(new_item.clone())?;
+            matches.push(true);
+        }
+    }
+
+    if remaining.len() == 1 {
+        for idx in 0..list.len() {
+            if !matches.get(idx).copied().unwrap_or(false) {
+                continue;
+            }
+            let existing = list.get_item(idx)?.into();
+            let resolved =
+                resolve_new_value(py, module, registry, Some(existing), new_value, root_data)?;
+            list.set_item(idx, resolved)?;
+        }
+        return Ok(current);
+    }
+
+    for idx in 0..list.len() {
+        if !matches.get(idx).copied().unwrap_or(false) {
+            continue;
+        }
+        let item: PyObject = list.get_item(idx)?.into();
+        let updated = set_recurse(
+            py,
+            module,
+            registry,
+            item,
+            &remaining[1..],
+            new_value,
+            write_options,
+            root_data,
+        )?;
+        list.set_item(idx, updated)?;
+    }
+
     Ok(current)
 }
 
@@ -3383,6 +3938,20 @@ fn unset_recurse(
     }
 
     match &remaining[0].kind {
+        TokenKind::RootMap => unset_root_map_token(py, module, registry, current, remaining),
+        TokenKind::RootIndex { index } => {
+            unset_root_index_token(py, module, registry, current, remaining, *index)
+        }
+        TokenKind::RootSlice { start, end } => {
+            unset_root_slice_token(py, module, registry, current, remaining, *start, *end)
+        }
+        TokenKind::RootFilter {
+            field,
+            operator,
+            value,
+        } => unset_root_filter_token(
+            py, module, registry, current, remaining, field, operator, value,
+        ),
         TokenKind::Get(key) => unset_get_token(py, module, registry, current, remaining, key),
         TokenKind::Map(key) => unset_map_token(py, module, registry, current, remaining, key),
         TokenKind::Wildcard => unset_wildcard_token(py, module, registry, current, remaining),
@@ -3472,6 +4041,145 @@ fn unset_map_token(
         list.set_item(idx, updated)?;
     }
     dict.set_item(key, list_obj)?;
+    Ok(current)
+}
+
+fn unset_root_map_token(
+    py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
+    current: PyObject,
+    remaining: &[ParsedToken],
+) -> PyResult<PyObject> {
+    if !current.bind(py).is_instance_of::<PyList>() {
+        return Ok(current);
+    }
+    let list = current.bind(py).downcast::<PyList>()?;
+
+    if remaining.len() == 1 {
+        list.call_method0("clear")?;
+        return Ok(current);
+    }
+
+    for idx in 0..list.len() {
+        let item: PyObject = list.get_item(idx)?.into();
+        let updated = unset_recurse(py, module, registry, item, &remaining[1..])?;
+        list.set_item(idx, updated)?;
+    }
+    Ok(current)
+}
+
+fn unset_root_index_token(
+    py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
+    current: PyObject,
+    remaining: &[ParsedToken],
+    index: isize,
+) -> PyResult<PyObject> {
+    if !current.bind(py).is_instance_of::<PyList>() {
+        return Ok(current);
+    }
+    let list = current.bind(py).downcast::<PyList>()?;
+    let in_bounds = index >= -(list.len() as isize) && index < list.len() as isize;
+
+    if remaining.len() == 1 {
+        if in_bounds {
+            list.call_method1("pop", (index,))?;
+        }
+        return Ok(current);
+    }
+
+    if in_bounds {
+        let target_index = if index < 0 {
+            (list.len() as isize + index) as usize
+        } else {
+            index as usize
+        };
+        let child: PyObject = list.get_item(target_index)?.into();
+        let updated = unset_recurse(py, module, registry, child, &remaining[1..])?;
+        list.set_item(target_index, updated)?;
+    }
+
+    Ok(current)
+}
+
+fn unset_root_slice_token(
+    py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
+    current: PyObject,
+    remaining: &[ParsedToken],
+    start: Option<isize>,
+    end: Option<isize>,
+) -> PyResult<PyObject> {
+    if !current.bind(py).is_instance_of::<PyList>() {
+        return Ok(current);
+    }
+    let list = current.bind(py).downcast::<PyList>()?;
+    let indexes = compute_slice_indexes(list.len(), start, end);
+
+    if remaining.len() == 1 {
+        for idx in indexes.iter().rev() {
+            list.call_method1("pop", (*idx as isize,))?;
+        }
+        return Ok(current);
+    }
+
+    for idx in indexes {
+        let child: PyObject = list.get_item(idx)?.into();
+        let updated = unset_recurse(py, module, registry, child, &remaining[1..])?;
+        list.set_item(idx, updated)?;
+    }
+
+    Ok(current)
+}
+
+fn unset_root_filter_token(
+    py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
+    current: PyObject,
+    remaining: &[ParsedToken],
+    field: &str,
+    operator: &str,
+    value: &str,
+) -> PyResult<PyObject> {
+    if !current.bind(py).is_instance_of::<PyList>() {
+        return Ok(current);
+    }
+
+    let list = current.bind(py).downcast::<PyList>()?;
+    let matcher = compile_filter_matcher(py, module, registry, field, value)?;
+
+    if remaining.len() == 1 {
+        let filtered = PyList::empty_bound(py);
+        for idx in 0..list.len() {
+            let item = list.get_item(idx)?;
+            let item_obj: PyObject = item.clone().into();
+            if !filter_matches_compiled(py, module, registry, operator, &matcher, &item_obj, None)?
+            {
+                filtered.append(item)?;
+            }
+        }
+        list.call_method0("clear")?;
+        for item in filtered.iter() {
+            list.append(item)?;
+        }
+        return Ok(current);
+    }
+
+    for idx in 0..list.len() {
+        let item = list.get_item(idx)?;
+        let item_obj: PyObject = item.clone().into();
+        if !filter_matches_compiled(py, module, registry, operator, &matcher, &item_obj, None)? {
+            continue;
+        }
+        let child: PyObject = item.into();
+        let updated = unset_recurse(py, module, registry, child, &remaining[1..])?;
+        list.set_item(idx, updated)?;
+    }
+
     Ok(current)
 }
 
@@ -3866,7 +4574,9 @@ impl RustDictWalk {
         let registry = load_registry(py)?;
         let tokens = parse_path(py, &module, &registry, path)?;
 
-        if path_uses_root_token(&tokens) {
+        validate_write_path_root_selector(py, path, &tokens)?;
+
+        if path_uses_bare_root_token(&tokens) {
             return Err(make_parse_error(
                 py,
                 path,
@@ -3919,7 +4629,9 @@ impl RustDictWalk {
         let registry = load_registry(py)?;
         let tokens = parse_path(py, &module, &registry, path)?;
 
-        if path_uses_root_token(&tokens) {
+        validate_write_path_root_selector(py, path, &tokens)?;
+
+        if path_uses_bare_root_token(&tokens) {
             return Err(make_parse_error(
                 py,
                 path,
