@@ -130,6 +130,7 @@ enum BuiltinFilter {
     Startswith(PyObject),
     Endswith(PyObject),
     Matches(PyObject),
+    Const(PyObject),
     Default(PyObject),
     Coalesce(Vec<PyObject>),
     Bool,
@@ -1140,6 +1141,7 @@ fn compile_builtin_filter(py: Python<'_>, name: &str, args: &[PyObject]) -> Opti
         ("startswith", 1) => Some(BuiltinFilter::Startswith(args[0].clone_ref(py))),
         ("endswith", 1) => Some(BuiltinFilter::Endswith(args[0].clone_ref(py))),
         ("matches", 1) => Some(BuiltinFilter::Matches(args[0].clone_ref(py))),
+        ("const", 1) => Some(BuiltinFilter::Const(args[0].clone_ref(py))),
         ("default", 1) => Some(BuiltinFilter::Default(args[0].clone_ref(py))),
         ("coalesce", n) if n >= 1 => Some(BuiltinFilter::Coalesce(
             args.iter().map(|arg| arg.clone_ref(py)).collect(),
@@ -1901,6 +1903,7 @@ fn apply_builtin_filter(
                 .call1((pattern.clone_ref(py), value.bind(py).str()?))?;
             Ok((!searched.is_none()).to_object(py))
         }
+        BuiltinFilter::Const(constant) => Ok(constant.clone_ref(py)),
         BuiltinFilter::Default(default_value) => {
             if value.bind(py).is_none() {
                 Ok(default_value.clone_ref(py))

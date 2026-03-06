@@ -760,6 +760,7 @@ Statistics:
 - `$stdev`: population standard deviation of list/tuple
 
 Null/fallback:
+- `$const(value)`: always return `value` (ignores current input)
 - `$default(value)`: fallback when current value is `None`
 - `$coalesce(*values)`: first non-`None` among current value and provided values
 
@@ -791,6 +792,9 @@ dictwalk.get({"a": {"items": [1, 2, 3, 4, 5]}}, "a.items|$chunk(2)")
 
 dictwalk.get(data, "a.name|$strip|$title")
 # "Ada"
+
+dictwalk.get({"a": "b"}, ".|$const('literal value')")
+# "literal value"
 
 dictwalk.get(data, "a.created|$to_datetime|$timestamp")
 # 1704067200.0

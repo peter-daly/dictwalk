@@ -360,6 +360,13 @@ def test_run_filter_function__builtin_default():
     assert dictwalk.run_filter_function("$default(9)", None) == 9
 
 
+def test_run_filter_function__builtin_const():
+    assert (
+        dictwalk.run_filter_function("$const('literal value')", {"a": "b"})
+        == "literal value"
+    )
+
+
 def test_run_filter_function__builtin_coalesce():
     assert dictwalk.run_filter_function("$coalesce(None, 7, 8)", None) == 7
 

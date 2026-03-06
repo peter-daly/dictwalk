@@ -336,6 +336,27 @@ def test_get__get_path_value_with_output_transform_idiv():
     assert dictwalk.get(data, path, default=default) == expected
 
 
+def test_get__get_path_value_with_output_transform_const():
+    data = {"a": "b"}
+    path = ".|$const('literal value')"
+    default = None
+    expected = "literal value"
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_path_value_with_output_transform_const_numeric_literal():
+    data = {"a": "b"}
+
+    int_result = dictwalk.get(data, ".|$const(123)")
+    float_result = dictwalk.get(data, ".|$const(12.5)")
+
+    assert int_result == 123
+    assert isinstance(int_result, int)
+    assert float_result == 12.5
+    assert isinstance(float_result, float)
+
+
 def test_get__get_path_value_with_predicate_filter_and_output_transform():
     data = {
         "a": {"b": [{"id": "1", "c": 10}, {"id": "2", "c": 20}, {"id": "3", "c": 30}]}
