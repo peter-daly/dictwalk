@@ -727,6 +727,7 @@ String:
 - `$title`: title case
 - `$strip(chars=None)`: strip chars
 - `$replace(old, new)`: replace substring
+- `$regex_replace(pattern, repl)`: regex substitution via `re.sub`
 - `$split(sep=None)`: split into list
 - `$join(sep)`: join list-like values
 - `$startswith(prefix)`: startswith check
@@ -735,9 +736,16 @@ String:
 
 Collections:
 - `$len`: length
+- `$keys`: dict keys in iteration order (`None` for non-dict)
+- `$values`: dict values in iteration order (`None` for non-dict)
+- `$items`: dict entries as `{"key": ..., "value": ...}` in iteration order (`None` for non-dict)
 - `$max`: max for list/tuple, otherwise passthrough
 - `$min`: min for list/tuple, otherwise passthrough
 - `$unique`: deduplicate list while preserving order
+- `$sort_by(path, reverse=False)`: stable sort list/tuple items by item-relative path, unresolved items sort last
+- `$unique_by(path)`: keep first item per resolved item-relative path, unresolved items are retained
+- `$index_by(path)`: build dict keyed by resolved item-relative path, later items win on duplicates, unresolved items are skipped
+- `$group_by(path)`: build dict of key -> list keyed by resolved item-relative path, unresolved items are skipped
 - `$reverse`: reverse list/tuple order
 - `$chunk(size)`: split list/tuple into chunks of `size` (returns `None` for `size <= 0`)
 - `$flatten`: flatten one level of nested list/tuple items into a new list
@@ -763,13 +771,19 @@ Null/fallback:
 - `$const(value)`: always return `value` (ignores current input)
 - `$default(value)`: fallback when current value is `None`
 - `$coalesce(*values)`: first non-`None` among current value and provided values
+- `$compact`: remove only `None` elements from list/tuple, otherwise passthrough
 
 Date/time:
 - `$to_datetime(fmt=None)`: parse datetime
+- `$strftime(fmt)`: format datetime-like values with `strftime`
 - `$timestamp`: convert datetime-like to unix timestamp
 - `$age_seconds`: seconds from datetime to now
 - `$before(dt)`: datetime comparison
 - `$after(dt)`: datetime comparison
+
+Serialization:
+- `$from_json`: parse JSON from string input (`None` for non-string or invalid JSON)
+- `$to_json`: serialize value with `json.dumps`
 
 Filter usage examples:
 
@@ -790,11 +804,26 @@ dictwalk.get({"a": {"nested": [[1, [2, [3]]], 4]}}, "a.nested|$flatten_deep")
 dictwalk.get({"a": {"items": [1, 2, 3, 4, 5]}}, "a.items|$chunk(2)")
 # [[1, 2], [3, 4], [5]]
 
+dictwalk.get({"a": {"meta": {"x": 1, "y": 2}}}, "a.meta|$items")
+# [{"key": "x", "value": 1}, {"key": "y", "value": 2}]
+
+dictwalk.get({"a": {"users": [{"id": 2}, {"id": 1}, {"name": "missing"}]}}, "a.users|$sort_by('id')")
+# [{"id": 1}, {"id": 2}, {"name": "missing"}]
+
 dictwalk.get(data, "a.name|$strip|$title")
 # "Ada"
 
 dictwalk.get({"a": "b"}, ".|$const('literal value')")
 # "literal value"
+
+dictwalk.get({"a": {"code": "item 123"}}, "a.code|$regex_replace('\\\\d+', '#')")
+# "item #"
+
+dictwalk.get({"a": {"raw": '{"id": 1}'}}, "a.raw|$from_json")
+# {"id": 1}
+
+dictwalk.get({"a": {"created": "2024-01-01T00:00:00Z"}}, "a.created|$to_datetime|$strftime('%Y-%m-%d')")
+# "2024-01-01"
 
 dictwalk.get(data, "a.created|$to_datetime|$timestamp")
 # 1704067200.0

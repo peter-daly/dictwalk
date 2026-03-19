@@ -336,6 +336,33 @@ def test_get__get_path_value_with_output_transform_idiv():
     assert dictwalk.get(data, path, default=default) == expected
 
 
+def test_get__get_path_value_with_output_transform_keys():
+    data = {"a": {"b": {"x": 1, "y": 2}}}
+    path = "a.b|$keys"
+    default = None
+    expected = ["x", "y"]
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_path_value_with_output_transform_values():
+    data = {"a": {"b": {"x": 1, "y": 2}}}
+    path = "a.b|$values"
+    default = None
+    expected = [1, 2]
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_path_value_with_output_transform_items():
+    data = {"a": {"b": {"x": 1, "y": 2}}}
+    path = "a.b|$items"
+    default = None
+    expected = [{"key": "x", "value": 1}, {"key": "y", "value": 2}]
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
 def test_get__get_path_value_with_output_transform_const():
     data = {"a": "b"}
     path = ".|$const('literal value')"
@@ -355,6 +382,140 @@ def test_get__get_path_value_with_output_transform_const_numeric_literal():
     assert isinstance(int_result, int)
     assert float_result == 12.5
     assert isinstance(float_result, float)
+
+
+def test_get__get_path_value_with_output_transform_sort_by():
+    data = {
+        "a": {
+            "users": [
+                {"user": {"id": 2}, "name": "two"},
+                {"name": "missing"},
+                {"user": {"id": 1}, "name": "one-a"},
+                {"user": {"id": 1}, "name": "one-b"},
+            ]
+        }
+    }
+    path = "a.users|$sort_by('user.id')"
+    default = None
+    expected = [
+        {"user": {"id": 1}, "name": "one-a"},
+        {"user": {"id": 1}, "name": "one-b"},
+        {"user": {"id": 2}, "name": "two"},
+        {"name": "missing"},
+    ]
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_path_value_with_output_transform_unique_by():
+    data = {
+        "a": {
+            "users": [
+                {"id": 1, "name": "one-a"},
+                {"name": "missing-a"},
+                {"id": 1, "name": "one-b"},
+                {"name": "missing-b"},
+                {"id": 2, "name": "two"},
+            ]
+        }
+    }
+    path = "a.users|$unique_by('id')"
+    default = None
+    expected = [
+        {"id": 1, "name": "one-a"},
+        {"name": "missing-a"},
+        {"name": "missing-b"},
+        {"id": 2, "name": "two"},
+    ]
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_path_value_with_output_transform_index_by():
+    data = {
+        "a": {
+            "users": [
+                {"id": 1, "name": "one-a"},
+                {"name": "missing"},
+                {"id": 1, "name": "one-b"},
+                {"id": 2, "name": "two"},
+            ]
+        }
+    }
+    path = "a.users|$index_by('id')"
+    default = None
+    expected = {
+        1: {"id": 1, "name": "one-b"},
+        2: {"id": 2, "name": "two"},
+    }
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_path_value_with_output_transform_group_by():
+    data = {
+        "a": {
+            "users": [
+                {"kind": "a", "name": "one"},
+                {"name": "missing"},
+                {"kind": "a", "name": "two"},
+                {"kind": "b", "name": "three"},
+            ]
+        }
+    }
+    path = "a.users|$group_by('kind')"
+    default = None
+    expected = {
+        "a": [{"kind": "a", "name": "one"}, {"kind": "a", "name": "two"}],
+        "b": [{"kind": "b", "name": "three"}],
+    }
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_path_value_with_output_transform_regex_replace():
+    data = {"a": {"code": "item 123"}}
+    path = "a.code|$regex_replace('\\\\d+', '#')"
+    default = None
+    expected = "item #"
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_path_value_with_output_transform_from_json():
+    data = {"a": {"raw": '{"id": 1, "tags": [2, 3]}'}}
+    path = "a.raw|$from_json"
+    default = None
+    expected = {"id": 1, "tags": [2, 3]}
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_path_value_with_output_transform_to_json():
+    data = {"a": {"value": {"id": 1, "tags": [2, 3]}}}
+    path = "a.value|$to_json"
+    default = None
+    expected = '{"id": 1, "tags": [2, 3]}'
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_path_value_with_output_transform_compact():
+    data = {"a": {"values": [None, 0, False, "", [], {}, 1]}}
+    path = "a.values|$compact"
+    default = None
+    expected = [0, False, "", [], {}, 1]
+
+    assert dictwalk.get(data, path, default=default) == expected
+
+
+def test_get__get_path_value_with_output_transform_to_datetime_then_strftime():
+    data = {"a": {"created": "2024-01-02T03:04:05Z"}}
+    path = "a.created|$to_datetime|$strftime('%Y-%m-%d')"
+    default = None
+    expected = "2024-01-02"
+
+    assert dictwalk.get(data, path, default=default) == expected
 
 
 def test_get__get_path_value_with_predicate_filter_and_output_transform():

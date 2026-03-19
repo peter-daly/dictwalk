@@ -160,6 +160,27 @@ def test_run_filter_function__builtin_unpick():
     }
 
 
+def test_run_filter_function__builtin_keys():
+    assert dictwalk.run_filter_function("$keys", {"a": 1, "b": 2}) == ["a", "b"]
+
+
+def test_run_filter_function__builtin_values():
+    assert dictwalk.run_filter_function("$values", {"a": 1, "b": 2}) == [1, 2]
+
+
+def test_run_filter_function__builtin_items():
+    assert dictwalk.run_filter_function("$items", {"a": 1, "b": 2}) == [
+        {"key": "a", "value": 1},
+        {"key": "b", "value": 2},
+    ]
+
+
+def test_run_filter_function__dict_introspection_returns_none_for_non_dict():
+    assert dictwalk.run_filter_function("$keys", ["a", "b"]) is None
+    assert dictwalk.run_filter_function("$values", ["a", "b"]) is None
+    assert dictwalk.run_filter_function("$items", ["a", "b"]) is None
+
+
 def test_run_filter_function__builtin_clamp():
     assert dictwalk.run_filter_function("$clamp(0, 10)", 99) == 10
 
@@ -240,6 +261,97 @@ def test_run_filter_function__builtin_avg():
 
 def test_run_filter_function__builtin_unique():
     assert dictwalk.run_filter_function("$unique", [1, 2, 2, 3, 1]) == [1, 2, 3]
+
+
+def test_run_filter_function__builtin_sort_by():
+    value = [
+        {"user": {"id": 2}, "name": "two"},
+        {"name": "missing"},
+        {"user": {"id": 1}, "name": "one-a"},
+        {"user": {"id": 1}, "name": "one-b"},
+    ]
+
+    assert dictwalk.run_filter_function("$sort_by('user.id')", value) == [
+        {"user": {"id": 1}, "name": "one-a"},
+        {"user": {"id": 1}, "name": "one-b"},
+        {"user": {"id": 2}, "name": "two"},
+        {"name": "missing"},
+    ]
+
+
+def test_run_filter_function__builtin_sort_by_reverse():
+    value = [{"id": 1}, {"id": 3}, {"name": "missing"}, {"id": 2}]
+
+    assert dictwalk.run_filter_function("$sort_by('id', True)", value) == [
+        {"id": 3},
+        {"id": 2},
+        {"id": 1},
+        {"name": "missing"},
+    ]
+
+
+def test_run_filter_function__builtin_unique_by():
+    value = [
+        {"id": 1, "name": "one-a"},
+        {"name": "missing-a"},
+        {"id": 1, "name": "one-b"},
+        {"name": "missing-b"},
+        {"id": 2, "name": "two"},
+    ]
+
+    assert dictwalk.run_filter_function("$unique_by('id')", value) == [
+        {"id": 1, "name": "one-a"},
+        {"name": "missing-a"},
+        {"name": "missing-b"},
+        {"id": 2, "name": "two"},
+    ]
+
+
+def test_run_filter_function__builtin_index_by():
+    value = [
+        {"id": 1, "name": "one-a"},
+        {"name": "missing"},
+        {"id": 1, "name": "one-b"},
+        {"id": 2, "name": "two"},
+    ]
+
+    assert dictwalk.run_filter_function("$index_by('id')", value) == {
+        1: {"id": 1, "name": "one-b"},
+        2: {"id": 2, "name": "two"},
+    }
+
+
+def test_run_filter_function__builtin_group_by():
+    value = [
+        {"kind": "a", "name": "one"},
+        {"name": "missing"},
+        {"kind": "a", "name": "two"},
+        {"kind": "b", "name": "three"},
+    ]
+
+    assert dictwalk.run_filter_function("$group_by('kind')", value) == {
+        "a": [{"kind": "a", "name": "one"}, {"kind": "a", "name": "two"}],
+        "b": [{"kind": "b", "name": "three"}],
+    }
+
+
+def test_run_filter_function__selector_filters_passthrough_non_collection():
+    value = {"id": 1}
+
+    assert dictwalk.run_filter_function("$sort_by('id')", value) == value
+    assert dictwalk.run_filter_function("$unique_by('id')", value) == value
+    assert dictwalk.run_filter_function("$index_by('id')", value) == value
+    assert dictwalk.run_filter_function("$group_by('id')", value) == value
+
+
+def test_run_filter_function__index_by_unhashable_key_raises_type_error():
+    with pytest.raises(TypeError):
+        dictwalk.run_filter_function("$index_by('tags')", [{"tags": [1, 2]}])
+
+
+def test_run_filter_function__group_by_unhashable_key_raises_type_error():
+    with pytest.raises(TypeError):
+        dictwalk.run_filter_function("$group_by('tags')", [{"tags": [1, 2]}])
 
 
 def test_run_filter_function__builtin_reverse():
@@ -333,6 +445,13 @@ def test_run_filter_function__builtin_replace():
     )
 
 
+def test_run_filter_function__builtin_regex_replace():
+    assert (
+        dictwalk.run_filter_function("$regex_replace('\\\\d+', '#')", "item 123")
+        == "item #"
+    )
+
+
 def test_run_filter_function__builtin_split():
     assert dictwalk.run_filter_function("$split(',')", "a,b,c") == ["a", "b", "c"]
 
@@ -387,10 +506,62 @@ def test_run_filter_function__builtin_non_empty():
     assert dictwalk.run_filter_function("$non_empty", [1]) is True
 
 
+def test_run_filter_function__builtin_compact():
+    assert dictwalk.run_filter_function("$compact", [None, 0, False, "", [], {}, 1]) == [
+        0,
+        False,
+        "",
+        [],
+        {},
+        1,
+    ]
+
+
+def test_run_filter_function__builtin_compact_passthrough_non_collection():
+    value = "hello"
+    assert dictwalk.run_filter_function("$compact", value) == value
+
+
+def test_run_filter_function__builtin_from_json():
+    assert dictwalk.run_filter_function("$from_json", '{"a": 1, "b": [2, 3]}') == {
+        "a": 1,
+        "b": [2, 3],
+    }
+
+
+def test_run_filter_function__builtin_from_json_invalid_returns_none():
+    assert dictwalk.run_filter_function("$from_json", "{") is None
+
+
+def test_run_filter_function__builtin_from_json_non_string_returns_none():
+    assert dictwalk.run_filter_function("$from_json", {"a": 1}) is None
+
+
+def test_run_filter_function__builtin_to_json():
+    assert dictwalk.run_filter_function("$to_json", {"a": 1, "b": [2, 3]}) == (
+        '{"a": 1, "b": [2, 3]}'
+    )
+
+
+def test_run_filter_function__builtin_to_json_raises_for_unserializable_value():
+    with pytest.raises(TypeError):
+        dictwalk.run_filter_function("$to_json", object())
+
+
 def test_run_filter_function__builtin_to_datetime():
     assert dictwalk.run_filter_function(
         "$to_datetime", "2024-01-02T03:04:05Z"
     ) == datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+
+
+def test_run_filter_function__builtin_strftime():
+    assert dictwalk.run_filter_function("$strftime('%Y-%m-%d')", "2024-01-02T03:04:05Z") == (
+        "2024-01-02"
+    )
+
+
+def test_run_filter_function__builtin_strftime_invalid_value_returns_none():
+    assert dictwalk.run_filter_function("$strftime('%Y-%m-%d')", "not-a-date") is None
 
 
 def test_run_filter_function__builtin_timestamp():

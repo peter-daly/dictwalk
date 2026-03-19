@@ -1,8 +1,9 @@
 use pyo3::basic::CompareOp;
-use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError};
+use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyFloat, PyInt, PyList, PyModule, PyString, PyTuple};
 use regex::Regex;
+use std::cmp::Ordering;
 use std::sync::LazyLock;
 
 #[derive(Clone, Debug)]
@@ -125,11 +126,19 @@ enum BuiltinFilter {
     Title,
     Strip(Option<PyObject>),
     Replace(PyObject, PyObject),
+    RegexReplace(PyObject, PyObject),
     Split(Option<PyObject>),
     Join(PyObject),
     Startswith(PyObject),
     Endswith(PyObject),
     Matches(PyObject),
+    Keys,
+    Values,
+    Items,
+    SortBy(PyObject, Option<PyObject>),
+    UniqueBy(PyObject),
+    IndexBy(PyObject),
+    GroupBy(PyObject),
     Const(PyObject),
     Default(PyObject),
     Coalesce(Vec<PyObject>),
@@ -137,7 +146,11 @@ enum BuiltinFilter {
     TypeIs(PyObject),
     IsEmpty,
     NonEmpty,
+    Compact,
+    FromJson,
+    ToJson,
     ToDatetime(Option<PyObject>),
+    Strftime(PyObject),
     Timestamp,
     AgeSeconds,
     Before(PyObject),
@@ -1135,12 +1148,27 @@ fn compile_builtin_filter(py: Python<'_>, name: &str, args: &[PyObject]) -> Opti
             args[0].clone_ref(py),
             args[1].clone_ref(py),
         )),
+        ("regex_replace", 2) => Some(BuiltinFilter::RegexReplace(
+            args[0].clone_ref(py),
+            args[1].clone_ref(py),
+        )),
         ("split", 0) => Some(BuiltinFilter::Split(None)),
         ("split", 1) => Some(BuiltinFilter::Split(Some(args[0].clone_ref(py)))),
         ("join", 1) => Some(BuiltinFilter::Join(args[0].clone_ref(py))),
         ("startswith", 1) => Some(BuiltinFilter::Startswith(args[0].clone_ref(py))),
         ("endswith", 1) => Some(BuiltinFilter::Endswith(args[0].clone_ref(py))),
         ("matches", 1) => Some(BuiltinFilter::Matches(args[0].clone_ref(py))),
+        ("keys", 0) => Some(BuiltinFilter::Keys),
+        ("values", 0) => Some(BuiltinFilter::Values),
+        ("items", 0) => Some(BuiltinFilter::Items),
+        ("sort_by", 1) => Some(BuiltinFilter::SortBy(args[0].clone_ref(py), None)),
+        ("sort_by", 2) => Some(BuiltinFilter::SortBy(
+            args[0].clone_ref(py),
+            Some(args[1].clone_ref(py)),
+        )),
+        ("unique_by", 1) => Some(BuiltinFilter::UniqueBy(args[0].clone_ref(py))),
+        ("index_by", 1) => Some(BuiltinFilter::IndexBy(args[0].clone_ref(py))),
+        ("group_by", 1) => Some(BuiltinFilter::GroupBy(args[0].clone_ref(py))),
         ("const", 1) => Some(BuiltinFilter::Const(args[0].clone_ref(py))),
         ("default", 1) => Some(BuiltinFilter::Default(args[0].clone_ref(py))),
         ("coalesce", n) if n >= 1 => Some(BuiltinFilter::Coalesce(
@@ -1150,8 +1178,12 @@ fn compile_builtin_filter(py: Python<'_>, name: &str, args: &[PyObject]) -> Opti
         ("type_is", 1) => Some(BuiltinFilter::TypeIs(args[0].clone_ref(py))),
         ("is_empty", 0) => Some(BuiltinFilter::IsEmpty),
         ("non_empty", 0) => Some(BuiltinFilter::NonEmpty),
+        ("compact", 0) => Some(BuiltinFilter::Compact),
+        ("from_json", 0) => Some(BuiltinFilter::FromJson),
+        ("to_json", 0) => Some(BuiltinFilter::ToJson),
         ("to_datetime", 0) => Some(BuiltinFilter::ToDatetime(None)),
         ("to_datetime", 1) => Some(BuiltinFilter::ToDatetime(Some(args[0].clone_ref(py)))),
+        ("strftime", 1) => Some(BuiltinFilter::Strftime(args[0].clone_ref(py))),
         ("timestamp", 0) => Some(BuiltinFilter::Timestamp),
         ("age_seconds", 0) => Some(BuiltinFilter::AgeSeconds),
         ("before", 1) => Some(BuiltinFilter::Before(args[0].clone_ref(py))),
@@ -1285,6 +1317,38 @@ fn has_len_zero(py: Python<'_>, value: &PyObject) -> bool {
     value.bind(py).len().map(|len| len == 0).unwrap_or(false)
 }
 
+fn is_list_or_tuple(bound: &Bound<'_, PyAny>) -> bool {
+    bound.is_instance_of::<PyList>() || bound.is_instance_of::<PyTuple>()
+}
+
+fn collect_sequence_items(py: Python<'_>, value: &PyObject) -> PyResult<Option<Vec<PyObject>>> {
+    let value_bound = value.bind(py);
+    if !is_list_or_tuple(&value_bound) {
+        return Ok(None);
+    }
+
+    let len = value_bound.len()?;
+    let mut out: Vec<PyObject> = Vec::with_capacity(len);
+    for idx in 0..len {
+        out.push(value_bound.get_item(idx)?.into());
+    }
+
+    Ok(Some(out))
+}
+
+fn extract_string_arg(
+    py: Python<'_>,
+    value: &PyObject,
+    filter_name: &str,
+    arg_name: &str,
+) -> PyResult<String> {
+    value.bind(py).extract::<String>().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "Filter '${filter_name}' expects {arg_name} to be a string."
+        ))
+    })
+}
+
 fn as_datetime(
     py: Python<'_>,
     value: &PyObject,
@@ -1322,7 +1386,7 @@ fn as_datetime(
 
 fn collect_numeric_sequence(py: Python<'_>, value: &PyObject) -> PyResult<Option<Vec<f64>>> {
     let value_bound = value.bind(py);
-    if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>()) {
+    if !is_list_or_tuple(&value_bound) {
         return Ok(None);
     }
 
@@ -1356,7 +1420,7 @@ fn percentile_value(sorted_values: &[f64], percentile: f64) -> Option<f64> {
 }
 
 fn flatten_deep_into(value: &Bound<'_, PyAny>, flattened: &Bound<'_, PyList>) -> PyResult<()> {
-    if value.is_instance_of::<PyList>() || value.is_instance_of::<PyTuple>() {
+    if is_list_or_tuple(value) {
         let value_len = value.len()?;
         for idx in 0..value_len {
             let nested = value.get_item(idx)?;
@@ -1367,6 +1431,68 @@ fn flatten_deep_into(value: &Bound<'_, PyAny>, flattened: &Bound<'_, PyList>) ->
 
     flattened.append(value)?;
     Ok(())
+}
+
+fn resolve_relative_read_path(
+    py: Python<'_>,
+    module: &Bound<'_, PyModule>,
+    registry: &Bound<'_, PyAny>,
+    item: &PyObject,
+    path: &str,
+) -> PyResult<Option<PyObject>> {
+    let (base_path, output_transform) = split_path_and_transform(path);
+    let mut current = item.clone_ref(py);
+
+    if base_path != "." {
+        let tokens = parse_path(py, module, registry, &base_path)?;
+        validate_read_path_root_token(py, &base_path, &tokens)?;
+
+        for token in tokens {
+            if matches!(token.kind, TokenKind::Root) {
+                current = item.clone_ref(py);
+                continue;
+            }
+
+            match resolve_token(py, module, registry, &current, item, &token.kind) {
+                Ok(value) => current = value,
+                Err(err) => {
+                    if is_soft_resolution_error(py, &err) {
+                        return Ok(None);
+                    }
+                    return Err(err);
+                }
+            }
+        }
+    }
+
+    if let Some(transform) = output_transform {
+        current = apply_output_transform(py, module, registry, &current, &transform, item)?;
+    }
+
+    Ok(Some(current))
+}
+
+fn compare_selector_values(
+    py: Python<'_>,
+    left: &PyObject,
+    right: &PyObject,
+    reverse: bool,
+) -> PyResult<Ordering> {
+    if compare_with_fallback(py, left, right, "<")? {
+        return Ok(if reverse {
+            Ordering::Greater
+        } else {
+            Ordering::Less
+        });
+    }
+    if compare_with_fallback(py, left, right, ">")? {
+        return Ok(if reverse {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        });
+    }
+    Ok(Ordering::Equal)
 }
 
 fn apply_builtin_filter(
@@ -1529,6 +1655,42 @@ fn apply_builtin_filter(
                 if !remove {
                     out.set_item(key, v)?;
                 }
+            }
+            Ok(out.into())
+        }
+        BuiltinFilter::Keys => {
+            if !value.bind(py).is_instance_of::<PyDict>() {
+                return Ok(py.None());
+            }
+            let source = value.bind(py).downcast::<PyDict>()?;
+            let out = PyList::empty_bound(py);
+            for (key, _) in source.iter() {
+                out.append(key)?;
+            }
+            Ok(out.into())
+        }
+        BuiltinFilter::Values => {
+            if !value.bind(py).is_instance_of::<PyDict>() {
+                return Ok(py.None());
+            }
+            let source = value.bind(py).downcast::<PyDict>()?;
+            let out = PyList::empty_bound(py);
+            for (_, item_value) in source.iter() {
+                out.append(item_value)?;
+            }
+            Ok(out.into())
+        }
+        BuiltinFilter::Items => {
+            if !value.bind(py).is_instance_of::<PyDict>() {
+                return Ok(py.None());
+            }
+            let source = value.bind(py).downcast::<PyDict>()?;
+            let out = PyList::empty_bound(py);
+            for (key, item_value) in source.iter() {
+                let item = PyDict::new_bound(py);
+                item.set_item("key", key)?;
+                item.set_item("value", item_value)?;
+                out.append(item)?;
             }
             Ok(out.into())
         }
@@ -1713,10 +1875,135 @@ fn apply_builtin_filter(
             let dedup_dict = fromkeys.call1((value.clone_ref(py),))?;
             call_builtin1(py, "list", &dedup_dict.into())
         }
+        BuiltinFilter::SortBy(path_value, reverse_flag) => {
+            let selector_path = extract_string_arg(py, path_value, "sort_by", "selector path")?;
+            let reverse = reverse_flag
+                .as_ref()
+                .map(|flag| flag.bind(py).is_truthy())
+                .transpose()?
+                .unwrap_or(false);
+            let module = py.import_bound("dictwalk.dictwalk")?;
+            let registry = load_registry(py)?;
+            let Some(mut items) = collect_sequence_items(py, value)? else {
+                return Ok(value.clone_ref(py));
+            };
+
+            let mut keyed: Vec<(Option<PyObject>, PyObject)> = Vec::with_capacity(items.len());
+            for item in items.drain(..) {
+                let resolved =
+                    resolve_relative_read_path(py, &module, &registry, &item, &selector_path)?;
+                keyed.push((resolved, item));
+            }
+
+            let mut sorted: Vec<(Option<PyObject>, PyObject)> = Vec::with_capacity(keyed.len());
+            for entry in keyed {
+                let mut insert_at = sorted.len();
+                for (idx, (existing_key, _)) in sorted.iter().enumerate() {
+                    let ordering = match (&entry.0, existing_key) {
+                        (None, None) => Ordering::Equal,
+                        (None, Some(_)) => Ordering::Greater,
+                        (Some(_), None) => Ordering::Less,
+                        (Some(left), Some(right)) => {
+                            compare_selector_values(py, left, right, reverse)?
+                        }
+                    };
+                    if ordering == Ordering::Less {
+                        insert_at = idx;
+                        break;
+                    }
+                }
+                sorted.insert(insert_at, entry);
+            }
+
+            let out = PyList::empty_bound(py);
+            for (_, item) in sorted {
+                out.append(item)?;
+            }
+            Ok(out.into())
+        }
+        BuiltinFilter::UniqueBy(path_value) => {
+            let selector_path = extract_string_arg(py, path_value, "unique_by", "selector path")?;
+            let module = py.import_bound("dictwalk.dictwalk")?;
+            let registry = load_registry(py)?;
+            let Some(items) = collect_sequence_items(py, value)? else {
+                return Ok(value.clone_ref(py));
+            };
+
+            let out = PyList::empty_bound(py);
+            let mut seen: Vec<PyObject> = Vec::new();
+            for item in items {
+                let Some(key) =
+                    resolve_relative_read_path(py, &module, &registry, &item, &selector_path)?
+                else {
+                    out.append(item)?;
+                    continue;
+                };
+
+                let mut is_duplicate = false;
+                for existing in &seen {
+                    if compare_values(py, existing, &key, "==").unwrap_or(false) {
+                        is_duplicate = true;
+                        break;
+                    }
+                }
+
+                if !is_duplicate {
+                    seen.push(key);
+                    out.append(item)?;
+                }
+            }
+            Ok(out.into())
+        }
+        BuiltinFilter::IndexBy(path_value) => {
+            let selector_path = extract_string_arg(py, path_value, "index_by", "selector path")?;
+            let module = py.import_bound("dictwalk.dictwalk")?;
+            let registry = load_registry(py)?;
+            let Some(items) = collect_sequence_items(py, value)? else {
+                return Ok(value.clone_ref(py));
+            };
+
+            let out = PyDict::new_bound(py);
+            for item in items {
+                let Some(key) =
+                    resolve_relative_read_path(py, &module, &registry, &item, &selector_path)?
+                else {
+                    continue;
+                };
+                out.set_item(key, item)?;
+            }
+            Ok(out.into())
+        }
+        BuiltinFilter::GroupBy(path_value) => {
+            let selector_path = extract_string_arg(py, path_value, "group_by", "selector path")?;
+            let module = py.import_bound("dictwalk.dictwalk")?;
+            let registry = load_registry(py)?;
+            let Some(items) = collect_sequence_items(py, value)? else {
+                return Ok(value.clone_ref(py));
+            };
+
+            let out = PyDict::new_bound(py);
+            for item in items {
+                let Some(key) =
+                    resolve_relative_read_path(py, &module, &registry, &item, &selector_path)?
+                else {
+                    continue;
+                };
+
+                let group_obj: PyObject = match out.get_item(key.clone_ref(py))? {
+                    Some(existing) => existing.into(),
+                    None => {
+                        let new_group: PyObject = PyList::empty_bound(py).into();
+                        out.set_item(key.clone_ref(py), new_group.clone_ref(py))?;
+                        new_group
+                    }
+                };
+                group_obj.bind(py).downcast::<PyList>()?.append(item)?;
+            }
+            Ok(out.into())
+        }
         BuiltinFilter::Reverse => {
             let value_bound = value.bind(py);
-            if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>())
-            {
+            if !is_list_or_tuple(&value_bound) {
                 return Ok(value.clone_ref(py));
             }
 
@@ -1729,8 +2016,7 @@ fn apply_builtin_filter(
         }
         BuiltinFilter::Chunk(size_value) => {
             let value_bound = value.bind(py);
-            if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>())
-            {
+            if !is_list_or_tuple(&value_bound) {
                 return Ok(value.clone_ref(py));
             }
 
@@ -1756,8 +2042,7 @@ fn apply_builtin_filter(
         }
         BuiltinFilter::Flatten => {
             let value_bound = value.bind(py);
-            if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>())
-            {
+            if !is_list_or_tuple(&value_bound) {
                 return Ok(value.clone_ref(py));
             }
 
@@ -1778,8 +2063,7 @@ fn apply_builtin_filter(
         }
         BuiltinFilter::FlattenDeep => {
             let value_bound = value.bind(py);
-            if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>())
-            {
+            if !is_list_or_tuple(&value_bound) {
                 return Ok(value.clone_ref(py));
             }
 
@@ -1789,8 +2073,7 @@ fn apply_builtin_filter(
         }
         BuiltinFilter::Sorted(reverse) => {
             let value_bound = value.bind(py);
-            if !(value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>())
-            {
+            if !is_list_or_tuple(&value_bound) {
                 return Ok(value.clone_ref(py));
             }
             if let Some(reverse_flag) = reverse {
@@ -1806,7 +2089,7 @@ fn apply_builtin_filter(
         }
         BuiltinFilter::First => {
             let value_bound = value.bind(py);
-            if value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>() {
+            if is_list_or_tuple(&value_bound) {
                 if value_bound.len()? == 0 {
                     return Ok(py.None());
                 }
@@ -1816,7 +2099,7 @@ fn apply_builtin_filter(
         }
         BuiltinFilter::Last => {
             let value_bound = value.bind(py);
-            if value_bound.is_instance_of::<PyList>() || value_bound.is_instance_of::<PyTuple>() {
+            if is_list_or_tuple(&value_bound) {
                 let len = value_bound.len()?;
                 if len == 0 {
                     return Ok(py.None());
@@ -1860,6 +2143,15 @@ fn apply_builtin_filter(
             .bind(py)
             .str()?
             .call_method1("replace", (old.clone_ref(py), new.clone_ref(py)))
+            .map(|v| v.into()),
+        BuiltinFilter::RegexReplace(pattern, repl) => py
+            .import_bound("re")?
+            .getattr("sub")?
+            .call1((
+                pattern.clone_ref(py),
+                repl.clone_ref(py),
+                value.bind(py).str()?,
+            ))
             .map(|v| v.into()),
         BuiltinFilter::Split(sep) => {
             let s = value.bind(py).str()?;
@@ -1954,8 +2246,49 @@ fn apply_builtin_filter(
             let result = !(value.bind(py).is_none() || has_len_zero(py, value));
             Ok(result.to_object(py))
         }
+        BuiltinFilter::Compact => {
+            let Some(items) = collect_sequence_items(py, value)? else {
+                return Ok(value.clone_ref(py));
+            };
+            let out = PyList::empty_bound(py);
+            for item in items {
+                if !item.bind(py).is_none() {
+                    out.append(item)?;
+                }
+            }
+            Ok(out.into())
+        }
+        BuiltinFilter::FromJson => {
+            if !value.bind(py).is_instance_of::<PyString>() {
+                return Ok(py.None());
+            }
+            match py
+                .import_bound("json")?
+                .getattr("loads")?
+                .call1((value.clone_ref(py),))
+            {
+                Ok(parsed) => Ok(parsed.into()),
+                Err(_) => Ok(py.None()),
+            }
+        }
+        BuiltinFilter::ToJson => py
+            .import_bound("json")?
+            .getattr("dumps")?
+            .call1((value.clone_ref(py),))
+            .map(|v| v.into()),
         BuiltinFilter::ToDatetime(fmt) => {
             Ok(as_datetime(py, value, fmt.as_ref())?.unwrap_or_else(|| py.None()))
+        }
+        BuiltinFilter::Strftime(fmt) => {
+            let dt = match as_datetime(py, value, None) {
+                Ok(Some(dt)) => dt,
+                Ok(None) => return Ok(py.None()),
+                Err(err) if err.is_instance_of::<PyValueError>(py) => return Ok(py.None()),
+                Err(err) => return Err(err),
+            };
+            dt.bind(py)
+                .call_method1("strftime", (fmt.clone_ref(py),))
+                .map(|v| v.into())
         }
         BuiltinFilter::Timestamp => {
             let dt = match as_datetime(py, value, None)? {
