@@ -1,4 +1,6 @@
-from typing import TYPE_CHECKING, Any, Callable, Protocol, TypeVar, cast, overload
+from collections.abc import Callable
+from importlib import import_module
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast, overload
 
 TData = TypeVar("TData")
 TDefault = TypeVar("TDefault")
@@ -42,14 +44,14 @@ class DictWalkProtocol(Protocol):
 
 def _load_rust_backend() -> Any:
     try:
-        from . import _dictwalk_rs  # type: ignore[attr-defined]
+        extension_module = import_module(f"{__package__}._dictwalk_rs")
     except Exception as ex:
         raise RuntimeError(
             "Rust backend is required but unavailable. "
             "Build/install the extension (dictwalk._dictwalk_rs)."
         ) from ex
 
-    backend = getattr(_dictwalk_rs, "dictwalk", _dictwalk_rs)
+    backend = getattr(extension_module, "dictwalk", extension_module)
     required_methods = ("get", "exists", "set", "unset", "run_filter_function")
     if not all(hasattr(backend, method_name) for method_name in required_methods):
         raise RuntimeError(

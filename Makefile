@@ -1,9 +1,15 @@
-.PHONY: rust-build rust-build-release rust-fmt rust-clippy rust-check rust-test rust-ci test lint type deptry precommit build release ci benchmark
+.PHONY: rust-build rust-build-release rust-fmt rust-clippy rust-check rust-test rust-ci test lint type deptry precommit build release ci benchmark library-skills-sync library-skills-check
 
-rust-build:
+library-skills-sync:
+	uv run python scripts/sync_library_skills.py
+
+library-skills-check:
+	uv run python scripts/sync_library_skills.py --check
+
+rust-build: library-skills-sync
 	uv run --with maturin maturin develop --manifest-path rust/Cargo.toml --release
 
-rust-build-release:
+rust-build-release: library-skills-sync
 	uv run --with maturin maturin build --manifest-path rust/Cargo.toml --release -o rust/target/wheels
 
 rust-fmt:
@@ -37,13 +43,13 @@ precommit:
 
 benchmark:
 	uv run tox -e benchbro
-	
-build:
+
+build: library-skills-sync
 	uv build
 
 release:
 	@test -n "$$PYPI_TOKEN" || (echo "PYPI_TOKEN is not set"; exit 1)
 	uv publish --token "$$PYPI_TOKEN"
 
-ci: rust-ci
+ci: library-skills-check rust-ci
 	uv run tox -e py310,py311,py312,py313,py314,lint,type,deptry,benchbro

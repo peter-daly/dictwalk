@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "dictwalk"
-version = "2.5.0"
+version = "2.6.0"
 description = "Dict path traversal and mutation utilities"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,10 +16,14 @@ urls = { Homepage = "https://github.com/peterdaly/dictwalk", Repository = "https
 manifest-path = "rust/Cargo.toml"
 module-name = "dictwalk._dictwalk_rs"
 python-source = "."
+include = [
+    { path = ".library-skills/**/*", format = "sdist" },
+    { path = "dictwalk/.agents/skills/**/*", format = "sdist" },
+]
 
 [dependency-groups]
 dev = [
-    "benchbro>=0.4.2",
+    "benchbro>=0.4.2,<0.5",
     "deptry",
     "pre-commit",
     "pytest>=9.0.2",

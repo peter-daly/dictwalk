@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from importlib import import_module
 from typing import Any
 
 import pytest
@@ -6,11 +7,11 @@ import pytest
 
 def _load_rust_backend() -> Any | None:
     try:
-        from dictwalk import _dictwalk_rs  # type: ignore[attr-defined]
-    except Exception:
+        extension_module = import_module("dictwalk._dictwalk_rs")
+    except ImportError:
         return None
 
-    candidate = getattr(_dictwalk_rs, "dictwalk", _dictwalk_rs)
+    candidate = getattr(extension_module, "dictwalk", extension_module)
     required_methods = ("get", "exists", "set", "unset", "run_filter_function")
     if all(hasattr(candidate, method_name) for method_name in required_methods):
         return candidate

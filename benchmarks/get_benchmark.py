@@ -1,4 +1,5 @@
 from benchbro import Case
+
 from dictwalk import dictwalk
 
 get_case = Case(

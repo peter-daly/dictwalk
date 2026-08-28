@@ -1,9 +1,10 @@
 import pytest
+
 from dictwalk import dictwalk
 from dictwalk.errors import (
     DictWalkError,
-    DictWalkResolutionError,
     DictWalkParseError,
+    DictWalkResolutionError,
 )
 
 

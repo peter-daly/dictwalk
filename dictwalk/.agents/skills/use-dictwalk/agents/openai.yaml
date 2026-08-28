@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use dictwalk"
+  short_description: "Query and mutate complex nested Python data"
+  default_prompt: "Use $use-dictwalk to decide whether dictwalk fits this nested-data task and implement it appropriately."

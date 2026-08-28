@@ -58,6 +58,16 @@ uv sync
 make rust-build
 ```
 
+### Agent skill
+
+The package includes a Library Skills-compatible `use-dictwalk` skill for coding agents. After installing `dictwalk`, discover and install it in a consuming project with:
+
+```bash
+uvx library-skills --skill use-dictwalk
+```
+
+The skill covers advanced paths and transforms, while steering simple fixed-key access, comprehensions, assignments, and deletions toward ordinary Python.
+
 ## Quick Start
 
 ```python
@@ -73,7 +83,7 @@ data = {
 }
 
 # Read
-names = dictwalk.get(data, "a.users[].name")
+names = dictwalk.get(data, "a.users.name[]")
 # ["Ada", "Lin"]
 
 # Filter and map
@@ -100,10 +110,10 @@ Read nested object keys.
 ### List map
 
 ```text
-a.items[].id
+a.items.id[]
 ```
 
-Apply the next token to every item in a list.
+Collect the named field from every item in a list.
 
 Root-list selector variants:
 
@@ -329,7 +339,7 @@ dictwalk.get(data, "a.b.missing", strict=True)
 List map:
 
 ```python
-dictwalk.get(data, "a.users[].name")
+dictwalk.get(data, "a.users.name[]")
 # ["Ada", "Lin", "Mia"]
 ```
 
@@ -412,7 +422,7 @@ dictwalk.get(data, "a.b.c|$double")
 dictwalk.get(data, "a.b.c|$double|$string")
 # "2"
 
-dictwalk.get(data, "a.users[].score|$sum")
+dictwalk.get(data, "a.users.score[]|$sum")
 # 60
 
 dictwalk.get(data, "profile.tags|$join(',')")
@@ -844,6 +854,22 @@ Use `strict=True` when you want explicit failures instead of fallback defaults.
 
 
 ## Development
+
+The Rust implementation is organized by responsibility:
+
+- `rust/src/lib.rs`: PyO3 module and Python-facing API
+- `rust/src/path.rs`: path tokenization, parsing, and validation
+- `rust/src/read.rs`: read-path resolution
+- `rust/src/filters/`: built-in transforms and predicate matching
+- `rust/src/write/`: shared mutation helpers plus `set` and `unset`
+- `rust/src/errors.rs`: Python exception construction
+
+Library Skill sources live in `.library-skills`. Keep the packaged copy synchronized and validate it with:
+
+```bash
+make library-skills-sync
+make library-skills-check
+```
 
 Run tests:
 

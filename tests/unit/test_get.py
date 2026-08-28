@@ -1,4 +1,5 @@
 import pytest
+
 from dictwalk import dictwalk
 from dictwalk.errors import DictWalkParseError, DictWalkResolutionError
 

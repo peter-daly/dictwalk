@@ -95,7 +95,7 @@ wheels = [
 
 [[package]]
 name = "dictwalk"
-version = "2.5.0"
+version = "2.6.0"
 source = { editable = "." }
 
 [package.dev-dependencies]
@@ -113,7 +113,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "benchbro", specifier = ">=0.4.2" },
+    { name = "benchbro", specifier = ">=0.4.2,<0.5" },
     { name = "deptry" },
     { name = "pre-commit" },
     { name = "pytest", specifier = ">=9.0.2" },

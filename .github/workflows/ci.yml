@@ -45,6 +45,8 @@ jobs:
             python_version: "3.13"
           - tox_env: deptry
             python_version: "3.13"
+          - tox_env: library-skills
+            python_version: "3.13"
 
     steps:
       - name: Checkout

@@ -7,4 +7,4 @@ def run_filter_function(path_filter: str, value: Any) -> Any:
     return dictwalk.run_filter_function(path_filter, value)
 
 
-__all__ = ["dictwalk", "DictWalk", "run_filter_function"]
+__all__ = ["DictWalk", "dictwalk", "run_filter_function"]
