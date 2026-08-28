@@ -1,6 +1,5 @@
 //! Recursive in-place set operations for every path token kind.
 
-use super::shared::*;
 use crate::*;
 pub(crate) fn set_recurse(
     py: Python<'_>,

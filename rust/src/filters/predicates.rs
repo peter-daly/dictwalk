@@ -1,6 +1,5 @@
 //! Boolean predicate parsing and list-filter matching.
 
-use super::builtins::*;
 use crate::*;
 pub(crate) enum PredicateExpr {
     Pipeline(BuiltinFilterPipeline),

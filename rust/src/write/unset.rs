@@ -1,6 +1,5 @@
 //! Recursive in-place unset operations for every path token kind.
 
-use super::shared::*;
 use crate::*;
 pub(crate) fn unset_recurse(
     py: Python<'_>,
@@ -95,14 +94,8 @@ pub(crate) fn unset_map_token(
 
     let dict = current.bind(py).downcast::<PyDict>()?;
     let list_obj: PyObject = match dict.get_item(key)? {
-        Some(value) => {
-            if value.is_instance_of::<PyList>() {
-                value.into()
-            } else {
-                return Ok(current);
-            }
-        }
-        None => return Ok(current),
+        Some(value) if value.is_instance_of::<PyList>() => value.into(),
+        Some(_) | None => return Ok(current),
     };
     let list = list_obj.bind(py).downcast::<PyList>()?;
 
@@ -381,14 +374,8 @@ pub(crate) fn unset_index_token(
 
     let dict = current.bind(py).downcast::<PyDict>()?;
     let list_obj: PyObject = match dict.get_item(key)? {
-        Some(value) => {
-            if value.is_instance_of::<PyList>() {
-                value.into()
-            } else {
-                return Ok(current);
-            }
-        }
-        None => return Ok(current),
+        Some(value) if value.is_instance_of::<PyList>() => value.into(),
+        Some(_) | None => return Ok(current),
     };
     let list = list_obj.bind(py).downcast::<PyList>()?;
     let in_bounds = index >= -(list.len() as isize) && index < list.len() as isize;
@@ -432,14 +419,8 @@ pub(crate) fn unset_slice_token(
 
     let dict = current.bind(py).downcast::<PyDict>()?;
     let list_obj: PyObject = match dict.get_item(key)? {
-        Some(value) => {
-            if value.is_instance_of::<PyList>() {
-                value.into()
-            } else {
-                return Ok(current);
-            }
-        }
-        None => return Ok(current),
+        Some(value) if value.is_instance_of::<PyList>() => value.into(),
+        Some(_) | None => return Ok(current),
     };
     let list = list_obj.bind(py).downcast::<PyList>()?;
     let indexes = compute_slice_indexes(list.len(), start, end);
@@ -479,14 +460,8 @@ pub(crate) fn unset_filter_token(
 
     let dict = current.bind(py).downcast::<PyDict>()?;
     let list_obj: PyObject = match dict.get_item(list_key)? {
-        Some(value_obj) => {
-            if value_obj.is_instance_of::<PyList>() {
-                value_obj.into()
-            } else {
-                return Ok(current);
-            }
-        }
-        None => return Ok(current),
+        Some(value_obj) if value_obj.is_instance_of::<PyList>() => value_obj.into(),
+        Some(_) | None => return Ok(current),
     };
     let list = list_obj.bind(py).downcast::<PyList>()?;
     let matcher = compile_filter_matcher(py, module, registry, field, value)?;
