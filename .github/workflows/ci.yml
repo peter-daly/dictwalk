@@ -166,8 +166,6 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
 
       - name: Compare package version to latest tag
         id: compare
@@ -186,9 +184,11 @@ jobs:
             fi
           fi
 
-          echo "package_version=${PACKAGE_VERSION}" >> "${GITHUB_OUTPUT}"
-          echo "latest_tag=${LATEST_TAG}" >> "${GITHUB_OUTPUT}"
-          echo "should_release=${SHOULD_RELEASE}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "package_version=${PACKAGE_VERSION}"
+            echo "latest_tag=${LATEST_TAG}"
+            echo "should_release=${SHOULD_RELEASE}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Show release decision
         run: |
