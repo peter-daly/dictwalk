@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "dictwalk"
-version = "2.6.0"
+version = "2.6.1"
 description = "Dict path traversal and mutation utilities"
 readme = "README.md"
 requires-python = ">=3.10"
