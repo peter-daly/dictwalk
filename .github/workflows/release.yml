@@ -20,26 +20,38 @@ jobs:
           fi
 
   build-wheels:
-    name: wheels (${{ matrix.os }})
+    name: wheels (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     needs: guard-main
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-15
-          - macos-15-intel
+        include:
+          - os: ubuntu-24.04
+            target: manylinux_x86_64
+          - os: ubuntu-24.04-arm
+            target: manylinux_aarch64
+          - os: ubuntu-24.04
+            target: musllinux_x86_64
+          - os: ubuntu-24.04-arm
+            target: musllinux_aarch64
+          - os: windows-latest
+            target: win*
+          - os: macos-15
+            target: macosx_arm64
+          - os: macos-15-intel
+            target: macosx_x86_64
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
       - name: Set up Rust
+        if: runner.os != 'Linux'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust artifacts
+        if: runner.os != 'Linux'
         uses: Swatinem/rust-cache@v2
 
       - name: Set up Python
@@ -47,18 +59,13 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Set up QEMU
-        if: matrix.os == 'ubuntu-latest'
-        uses: docker/setup-qemu-action@v4
-
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.2.1
         with:
           output-dir: dist
         env:
           # Build one ABI3 wheel per platform using the oldest supported CPython.
-          CIBW_BUILD: "cp310-*"
-          CIBW_ARCHS_LINUX: "x86_64 aarch64"
+          CIBW_BUILD: "cp310-${{ matrix.target }}"
           # Install Rust inside each Linux container so it matches the container's libc.
           CIBW_BEFORE_ALL_LINUX: >-
             curl -fsSLo /tmp/rustup.sh https://sh.rustup.rs &&
@@ -69,7 +76,7 @@ jobs:
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: dist-wheels-${{ matrix.os }}
+          name: dist-wheels-${{ strategy.job-index }}
           path: dist/*.whl
 
   build-sdist:
