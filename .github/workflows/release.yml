@@ -29,11 +29,12 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-          - macos-14
+          - macos-15
+          - macos-15-intel
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -42,25 +43,31 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Set up QEMU
         if: matrix.os == 'ubuntu-latest'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.2.1
         with:
           output-dir: dist
         env:
-          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-* cp314-*"
-          CIBW_SKIP: "pp* *-musllinux_*"
+          # Build one ABI3 wheel per platform using the oldest supported CPython.
+          CIBW_BUILD: "cp310-*"
           CIBW_ARCHS_LINUX: "x86_64 aarch64"
+          # Install Rust inside each Linux container so it matches the container's libc.
+          CIBW_BEFORE_ALL_LINUX: >-
+            curl -fsSLo /tmp/rustup.sh https://sh.rustup.rs &&
+            sh /tmp/rustup.sh -y --profile minimal --no-modify-path
+          CIBW_ENVIRONMENT_LINUX: "PATH=$HOME/.cargo/bin:$PATH"
+          CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=${{ matrix.os == 'macos-15-intel' && '10.15' || '11.0' }}
 
       - name: Upload wheel artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dist-wheels-${{ matrix.os }}
           path: dist/*.whl
@@ -72,15 +79,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -88,7 +95,7 @@ jobs:
         run: uv build --sdist
 
       - name: Upload sdist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dist-sdist
           path: dist/*.tar.gz
@@ -103,27 +110,29 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
       - name: Download wheel artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: dist-wheels-*
           path: dist
           merge-multiple: true
 
       - name: Download sdist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: dist-sdist
           path: dist
@@ -133,6 +142,13 @@ jobs:
 
       - name: Resolve version
         run: echo "VERSION=$(uv version --short)" >> "$GITHUB_ENV"
+
+      - name: Verify required ABI3 wheels
+        run: |
+          ls \
+            "dist/dictwalk-${VERSION}-cp310-abi3-musllinux_1_2_x86_64.whl" \
+            "dist/dictwalk-${VERSION}-cp310-abi3-musllinux_1_2_aarch64.whl" \
+            "dist/dictwalk-${VERSION}-cp310-abi3-macosx_10_15_x86_64.whl"
 
       - name: Publish to PyPI
         env:
