@@ -95,7 +95,7 @@ wheels = [
 
 [[package]]
 name = "dictwalk"
-version = "2.6.1"
+version = "2.7.0"
 source = { editable = "." }
 
 [package.dev-dependencies]
